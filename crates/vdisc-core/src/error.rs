@@ -27,6 +27,14 @@ pub enum VdiscError {
     DiscFull { capacity: usize },
 
     TrackPositionOutOfBounds { position: usize, track_count: usize },
+
+    SourceFingerprintMissing { track_id: Uuid, path: PathBuf },
+
+    SourceMissing { track_id: Uuid, path: PathBuf },
+
+    SourceNotRegular { track_id: Uuid, path: PathBuf },
+
+    SourceChanged { track_id: Uuid, path: PathBuf },
 }
 
 impl fmt::Display for VdiscError {
@@ -96,6 +104,38 @@ impl fmt::Display for VdiscError {
                     "track position {position} is invalid for a CD containing {track_count} tracks"
                 )
             }
+
+            Self::SourceFingerprintMissing { track_id, path } => {
+                write!(
+                    f,
+                    "track {track_id} has no source fingerprint: {}",
+                    path.display()
+                )
+            }
+
+            Self::SourceMissing { track_id, path } => {
+                write!(
+                    f,
+                    "source file for track {track_id} is missing: {}",
+                    path.display()
+                )
+            }
+
+            Self::SourceNotRegular { track_id, path } => {
+                write!(
+                    f,
+                    "source for track {track_id} is no longer a regular file: {}",
+                    path.display()
+                )
+            }
+
+            Self::SourceChanged { track_id, path } => {
+                write!(
+                    f,
+                    "source file for track {track_id} changed after import: {}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -116,7 +156,11 @@ impl Error for VdiscError {
             | Self::MetadataRead { .. }
             | Self::DraftIdentityMismatch { .. }
             | Self::DiscFull { .. }
-            | Self::TrackPositionOutOfBounds { .. } => None,
+            | Self::TrackPositionOutOfBounds { .. }
+            | Self::SourceFingerprintMissing { .. }
+            | Self::SourceMissing { .. }
+            | Self::SourceNotRegular { .. }
+            | Self::SourceChanged { .. } => None,
         }
     }
 }

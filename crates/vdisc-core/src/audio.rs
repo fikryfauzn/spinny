@@ -25,7 +25,7 @@ use symphonia::{
 use symphonia_adapter_libopus::OpusDecoder;
 use uuid::Uuid;
 
-use crate::{LocalFileSelection, Result, VdiscError};
+use crate::{LocalFileSelection, Result, SourceFingerprint, VdiscError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidatedLocalAudio {
@@ -33,6 +33,7 @@ pub struct ValidatedLocalAudio {
     target_disc_id: Uuid,
 
     source_path: PathBuf,
+    source_fingerprint: SourceFingerprint,
 
     container: String,
     codec: String,
@@ -55,7 +56,10 @@ impl ValidatedLocalAudio {
 
         let mut hint = Hint::new();
 
-        if let Some(extension) = source_path.extension().and_then(|ext| ext.to_str()) {
+        if let Some(extension) = source_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+        {
             hint.with_extension(extension);
         }
 
@@ -87,6 +91,7 @@ impl ValidatedLocalAudio {
         let mut codecs = CodecRegistry::new();
 
         default::register_enabled_codecs(&mut codecs);
+
         codecs.register_audio_decoder::<OpusDecoder>();
 
         let mut decoder = codecs
@@ -118,6 +123,7 @@ impl ValidatedLocalAudio {
             })?;
 
             decoded_packet = true;
+
             break;
         }
 
@@ -127,6 +133,20 @@ impl ValidatedLocalAudio {
                 "audio track contained no decodable packets",
             ));
         }
+
+        /*
+         * Fingerprint only after the file has passed actual
+         * audio validation.
+         *
+         * This fingerprint now represents the exact source
+         * bytes that VDISC successfully validated.
+         */
+        let source_fingerprint = SourceFingerprint::from_file(&source_path).map_err(|error| {
+            audio_error(
+                &source_path,
+                format!("failed fingerprinting validated audio: {error}"),
+            )
+        })?;
 
         let container = normalize_container(format.format_info().short_name);
 
@@ -153,6 +173,7 @@ impl ValidatedLocalAudio {
             target_disc_id,
 
             source_path,
+            source_fingerprint,
 
             container,
             codec,
@@ -173,6 +194,10 @@ impl ValidatedLocalAudio {
 
     pub fn source_path(&self) -> &Path {
         &self.source_path
+    }
+
+    pub fn source_fingerprint(&self) -> &SourceFingerprint {
+        &self.source_fingerprint
     }
 
     pub fn container(&self) -> &str {
@@ -206,6 +231,7 @@ fn audio_error(path: &Path, reason: impl Into<String>) -> VdiscError {
 fn normalize_container(container: &str) -> String {
     match container {
         "wave" => "wav".to_string(),
+
         other => other.to_string(),
     }
 }

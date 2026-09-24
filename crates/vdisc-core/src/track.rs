@@ -3,13 +3,16 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{TrackMetadata, ValidatedLocalAudio};
+use crate::{SourceFingerprint, TrackMetadata, ValidatedLocalAudio};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DraftTrack {
     id: Uuid,
 
     source_path: PathBuf,
+
+    #[serde(default)]
+    source_fingerprint: Option<SourceFingerprint>,
 
     container: String,
     codec: String,
@@ -37,22 +40,32 @@ impl DraftTrack {
 
             source_path: audio.source_path().to_path_buf(),
 
+            source_fingerprint: Some(audio.source_fingerprint().clone()),
+
             container: audio.container().to_string(),
+
             codec: audio.codec().to_string(),
 
             sample_rate: audio.sample_rate(),
+
             channels: audio.channels(),
+
             duration_ms: audio.duration_ms(),
 
             title: metadata.title().map(str::to_string),
+
             artist: metadata.artist().map(str::to_string),
+
             album: metadata.album().map(str::to_string),
+
             genre: metadata.genre().map(str::to_string),
 
             source_track_number: metadata.track_number(),
+
             source_track_total: metadata.track_total(),
 
             source_disc_number: metadata.disc_number(),
+
             source_disc_total: metadata.disc_total(),
         }
     }
@@ -63,6 +76,10 @@ impl DraftTrack {
 
     pub fn source_path(&self) -> &Path {
         &self.source_path
+    }
+
+    pub fn source_fingerprint(&self) -> Option<&SourceFingerprint> {
+        self.source_fingerprint.as_ref()
     }
 
     pub fn container(&self) -> &str {
