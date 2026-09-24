@@ -3,7 +3,9 @@ use std::{error::Error, fmt, io, path::PathBuf};
 #[derive(Debug)]
 pub enum VdiscError {
     Io(io::Error),
+
     Serialization(serde_json::Error),
+
     InvalidInput(String),
 
     TargetNotDraft { path: PathBuf },
@@ -15,6 +17,8 @@ pub enum VdiscError {
     LocalFileNotRegular { path: PathBuf },
 
     AudioValidation { path: PathBuf, reason: String },
+
+    MetadataRead { path: PathBuf, reason: String },
 }
 
 impl fmt::Display for VdiscError {
@@ -48,6 +52,10 @@ impl fmt::Display for VdiscError {
                 write!(f, "local file does not exist: {}", path.display())
             }
 
+            Self::LocalFileNotRegular { path } => {
+                write!(f, "local source is not a regular file: {}", path.display())
+            }
+
             Self::AudioValidation { path, reason } => {
                 write!(
                     f,
@@ -56,8 +64,8 @@ impl fmt::Display for VdiscError {
                 )
             }
 
-            Self::LocalFileNotRegular { path } => {
-                write!(f, "local source is not a regular file: {}", path.display())
+            Self::MetadataRead { path, reason } => {
+                write!(f, "metadata read failed for {}: {reason}", path.display())
             }
         }
     }
@@ -67,6 +75,7 @@ impl Error for VdiscError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+
             Self::Serialization(error) => Some(error),
 
             Self::InvalidInput(_)
@@ -74,7 +83,8 @@ impl Error for VdiscError {
             | Self::LocalFileRequiresLocalSource
             | Self::LocalFileNotFound { .. }
             | Self::LocalFileNotRegular { .. }
-            | Self::AudioValidation { .. } => None,
+            | Self::AudioValidation { .. }
+            | Self::MetadataRead { .. } => None,
         }
     }
 }

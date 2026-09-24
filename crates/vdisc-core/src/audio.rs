@@ -22,16 +22,21 @@ use symphonia::{
     },
     default,
 };
-
 use symphonia_adapter_libopus::OpusDecoder;
+use uuid::Uuid;
 
 use crate::{LocalFileSelection, Result, VdiscError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidatedLocalAudio {
+    target_path: PathBuf,
+    target_disc_id: Uuid,
+
     source_path: PathBuf,
+
     container: String,
     codec: String,
+
     sample_rate: Option<u32>,
     channels: Option<u16>,
     duration_ms: Option<u64>,
@@ -39,6 +44,9 @@ pub struct ValidatedLocalAudio {
 
 impl ValidatedLocalAudio {
     pub fn validate(selection: LocalFileSelection) -> Result<Self> {
+        let target_path = selection.target_path().to_path_buf();
+        let target_disc_id = selection.target_disc_id();
+
         let source_path = selection.source_path().to_path_buf();
 
         let file = File::open(&source_path)?;
@@ -79,7 +87,6 @@ impl ValidatedLocalAudio {
         let mut codecs = CodecRegistry::new();
 
         default::register_enabled_codecs(&mut codecs);
-
         codecs.register_audio_decoder::<OpusDecoder>();
 
         let mut decoder = codecs
@@ -142,13 +149,26 @@ impl ValidatedLocalAudio {
         };
 
         Ok(Self {
+            target_path,
+            target_disc_id,
+
             source_path,
+
             container,
             codec,
+
             sample_rate,
             channels,
             duration_ms,
         })
+    }
+
+    pub fn target_path(&self) -> &Path {
+        &self.target_path
+    }
+
+    pub fn target_disc_id(&self) -> Uuid {
+        self.target_disc_id
     }
 
     pub fn source_path(&self) -> &Path {
