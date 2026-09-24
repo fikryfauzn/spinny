@@ -5,7 +5,7 @@ use std::{
 
 use uuid::Uuid;
 
-use crate::{Result, VdiscError, load_draft};
+use crate::{Result, TrackSourceKind, TrackSourceSelection, VdiscError, load_draft};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddTrackRequest {
@@ -33,6 +33,10 @@ impl AddTrackRequest {
 
     pub fn target_disc_id(&self) -> Uuid {
         self.target_disc_id
+    }
+
+    pub fn select_source(self, source: TrackSourceKind) -> TrackSourceSelection {
+        TrackSourceSelection::new(self.target_path, self.target_disc_id, source)
     }
 }
 
