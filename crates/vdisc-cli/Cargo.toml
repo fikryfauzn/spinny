@@ -1,0 +1,11 @@
+[package]
+name = "vdisc-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "vdisc"
+path = "src/main.rs"
+
+[dependencies]
+vdisc-core = { path = "../vdisc-core" }
