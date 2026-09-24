@@ -13,6 +13,8 @@ pub enum VdiscError {
     LocalFileNotFound { path: PathBuf },
 
     LocalFileNotRegular { path: PathBuf },
+
+    AudioValidation { path: PathBuf, reason: String },
 }
 
 impl fmt::Display for VdiscError {
@@ -46,6 +48,14 @@ impl fmt::Display for VdiscError {
                 write!(f, "local file does not exist: {}", path.display())
             }
 
+            Self::AudioValidation { path, reason } => {
+                write!(
+                    f,
+                    "audio validation failed for {}: {reason}",
+                    path.display()
+                )
+            }
+
             Self::LocalFileNotRegular { path } => {
                 write!(f, "local source is not a regular file: {}", path.display())
             }
@@ -63,7 +73,8 @@ impl Error for VdiscError {
             | Self::TargetNotDraft { .. }
             | Self::LocalFileRequiresLocalSource
             | Self::LocalFileNotFound { .. }
-            | Self::LocalFileNotRegular { .. } => None,
+            | Self::LocalFileNotRegular { .. }
+            | Self::AudioValidation { .. } => None,
         }
     }
 }
