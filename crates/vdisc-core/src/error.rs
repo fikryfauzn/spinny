@@ -7,6 +7,12 @@ pub enum VdiscError {
     InvalidInput(String),
 
     TargetNotDraft { path: PathBuf },
+
+    LocalFileRequiresLocalSource,
+
+    LocalFileNotFound { path: PathBuf },
+
+    LocalFileNotRegular { path: PathBuf },
 }
 
 impl fmt::Display for VdiscError {
@@ -31,6 +37,18 @@ impl fmt::Display for VdiscError {
                     path.display()
                 )
             }
+
+            Self::LocalFileRequiresLocalSource => {
+                write!(f, "local file selection requires the Local track source")
+            }
+
+            Self::LocalFileNotFound { path } => {
+                write!(f, "local file does not exist: {}", path.display())
+            }
+
+            Self::LocalFileNotRegular { path } => {
+                write!(f, "local source is not a regular file: {}", path.display())
+            }
         }
     }
 }
@@ -40,7 +58,12 @@ impl Error for VdiscError {
         match self {
             Self::Io(error) => Some(error),
             Self::Serialization(error) => Some(error),
-            Self::InvalidInput(_) | Self::TargetNotDraft { .. } => None,
+
+            Self::InvalidInput(_)
+            | Self::TargetNotDraft { .. }
+            | Self::LocalFileRequiresLocalSource
+            | Self::LocalFileNotFound { .. }
+            | Self::LocalFileNotRegular { .. } => None,
         }
     }
 }
