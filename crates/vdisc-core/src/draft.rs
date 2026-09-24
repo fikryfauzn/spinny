@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{DISC_TRACK_CAPACITY, DraftTrack, Result, VdiscError};
+use crate::{DISC_TRACK_CAPACITY, DiscAppearance, DiscSurface, DraftTrack, Result, VdiscError};
 
 pub const DRAFT_FORMAT_VERSION: u32 = 1;
 
@@ -19,6 +19,9 @@ pub struct DraftDisc {
 
     #[serde(default)]
     tracks: Vec<DraftTrack>,
+
+    #[serde(default)]
+    appearance: DiscAppearance,
 }
 
 impl DraftDisc {
@@ -44,6 +47,8 @@ impl DraftDisc {
             created_at_unix,
 
             tracks: Vec::new(),
+
+            appearance: DiscAppearance::default(),
         })
     }
 
@@ -69,6 +74,10 @@ impl DraftDisc {
 
     pub fn tracks(&self) -> &[DraftTrack] {
         &self.tracks
+    }
+
+    pub fn appearance(&self) -> &DiscAppearance {
+        &self.appearance
     }
 
     pub fn is_full(&self) -> bool {
@@ -109,6 +118,14 @@ impl DraftDisc {
         Ok(true)
     }
 
+    pub(crate) fn set_disc_surface(&mut self, surface: DiscSurface) {
+        self.appearance.set_surface(surface);
+    }
+
+    pub(crate) fn set_disc_label(&mut self, label: Option<String>) {
+        self.appearance.set_label(label);
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.draft_version != DRAFT_FORMAT_VERSION {
             return Err(VdiscError::InvalidInput(format!(
@@ -126,6 +143,8 @@ impl DraftDisc {
                 DISC_TRACK_CAPACITY
             )));
         }
+
+        self.appearance.validate()?;
 
         Ok(())
     }

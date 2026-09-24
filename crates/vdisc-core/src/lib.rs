@@ -1,4 +1,5 @@
 pub mod add_track;
+pub mod appearance;
 pub mod audio;
 pub mod customization;
 pub mod draft;
@@ -13,6 +14,8 @@ pub mod track_edit;
 pub mod track_import;
 
 pub use add_track::AddTrackRequest;
+
+pub use appearance::{DiscAppearance, DiscColor, DiscImage, DiscImageFormat, DiscSurface};
 
 pub use audio::ValidatedLocalAudio;
 
