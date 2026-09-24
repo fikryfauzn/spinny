@@ -1,10 +1,12 @@
-use std::{error::Error, fmt, io};
+use std::{error::Error, fmt, io, path::PathBuf};
 
 #[derive(Debug)]
 pub enum VdiscError {
     Io(io::Error),
     Serialization(serde_json::Error),
     InvalidInput(String),
+
+    TargetNotDraft { path: PathBuf },
 }
 
 impl fmt::Display for VdiscError {
@@ -21,6 +23,14 @@ impl fmt::Display for VdiscError {
             Self::InvalidInput(message) => {
                 write!(f, "invalid input: {message}")
             }
+
+            Self::TargetNotDraft { path } => {
+                write!(
+                    f,
+                    "add-track target must be a .vdraft file: {}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -30,7 +40,7 @@ impl Error for VdiscError {
         match self {
             Self::Io(error) => Some(error),
             Self::Serialization(error) => Some(error),
-            Self::InvalidInput(_) => None,
+            Self::InvalidInput(_) | Self::TargetNotDraft { .. } => None,
         }
     }
 }
