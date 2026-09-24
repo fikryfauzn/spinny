@@ -309,3 +309,73 @@ fn replaced_session_target_cannot_be_customized() -> Result<(), Box<dyn Error>> 
 
     Ok(())
 }
+
+#[test]
+fn missing_image_is_rejected_without_mutation() -> Result<(), Box<dyn Error>> {
+    let sandbox = common::TestSandbox::new()?;
+
+    let draft_path = create_draft(sandbox.path())?;
+
+    let missing_image = sandbox.path().join("missing.png");
+
+    let session = CustomizationSession::begin(&draft_path)?;
+
+    let before = fs::read(&draft_path)?;
+
+    let result = session.set_disc_image(&missing_image);
+
+    assert!(matches!(result, Err(VdiscError::InvalidInput(_))));
+
+    let after = fs::read(&draft_path)?;
+
+    assert_eq!(before, after);
+
+    Ok(())
+}
+
+#[test]
+fn unsupported_image_format_is_rejected_without_mutation() -> Result<(), Box<dyn Error>> {
+    let sandbox = common::TestSandbox::new()?;
+
+    let draft_path = create_draft(sandbox.path())?;
+
+    let image_path = sandbox.path().join("unsupported.gif");
+
+    /*
+     * A tiny GIF-like file.
+     *
+     * We only need enough data for image format
+     * detection. GIF is deliberately unsupported
+     * by the VDISC V0.1 appearance model.
+     */
+    fs::write(
+        &image_path,
+        b"GIF89a\x01\x00\x01\x00\x80\x00\x00\
+          \x00\x00\x00\xff\xff\xff\x3b",
+    )?;
+
+    let session = CustomizationSession::begin(&draft_path)?;
+
+    let before = fs::read(&draft_path)?;
+
+    let result = session.set_disc_image(&image_path);
+
+    assert!(matches!(result, Err(VdiscError::InvalidInput(_))));
+
+    let after = fs::read(&draft_path)?;
+
+    assert_eq!(before, after);
+
+    Ok(())
+}
+
+#[test]
+fn disc_color_supports_full_rgb_domain() {
+    let minimum = DiscColor::new(0, 0, 0);
+
+    assert_eq!(minimum.to_hex(), "#000000");
+
+    let maximum = DiscColor::new(255, 255, 255);
+
+    assert_eq!(maximum.to_hex(), "#FFFFFF");
+}
