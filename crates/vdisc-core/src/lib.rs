@@ -5,13 +5,25 @@ pub mod draft_store;
 pub mod error;
 pub mod metadata;
 pub mod source;
+pub mod track;
+pub mod track_import;
 
 pub use add_track::AddTrackRequest;
+
 pub use audio::ValidatedLocalAudio;
+
 pub use draft::{DRAFT_FORMAT_VERSION, DraftDisc};
+
 pub use draft_store::{load_draft, save_draft};
+
 pub use error::{Result, VdiscError};
+
 pub use metadata::TrackMetadata;
+
 pub use source::{LocalFileSelection, TrackSourceKind, TrackSourceSelection};
+
+pub use track::DraftTrack;
+
+pub use track_import::add_validated_local_track;
 
 pub const DISC_TRACK_CAPACITY: usize = 6;

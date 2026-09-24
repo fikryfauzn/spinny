@@ -1,5 +1,7 @@
 use std::{error::Error, fmt, io, path::PathBuf};
 
+use uuid::Uuid;
+
 #[derive(Debug)]
 pub enum VdiscError {
     Io(io::Error),
@@ -19,6 +21,10 @@ pub enum VdiscError {
     AudioValidation { path: PathBuf, reason: String },
 
     MetadataRead { path: PathBuf, reason: String },
+
+    DraftIdentityMismatch { expected: Uuid, actual: Uuid },
+
+    DiscFull { capacity: usize },
 }
 
 impl fmt::Display for VdiscError {
@@ -67,6 +73,17 @@ impl fmt::Display for VdiscError {
             Self::MetadataRead { path, reason } => {
                 write!(f, "metadata read failed for {}: {reason}", path.display())
             }
+
+            Self::DraftIdentityMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "draft identity mismatch: expected {expected}, found {actual}"
+                )
+            }
+
+            Self::DiscFull { capacity } => {
+                write!(f, "CD is full: maximum capacity is {capacity} tracks")
+            }
         }
     }
 }
@@ -84,7 +101,9 @@ impl Error for VdiscError {
             | Self::LocalFileNotFound { .. }
             | Self::LocalFileNotRegular { .. }
             | Self::AudioValidation { .. }
-            | Self::MetadataRead { .. } => None,
+            | Self::MetadataRead { .. }
+            | Self::DraftIdentityMismatch { .. }
+            | Self::DiscFull { .. } => None,
         }
     }
 }

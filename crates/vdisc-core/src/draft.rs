@@ -3,16 +3,22 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{DISC_TRACK_CAPACITY, Result, VdiscError};
+use crate::{DISC_TRACK_CAPACITY, DraftTrack, Result, VdiscError};
 
 pub const DRAFT_FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DraftDisc {
     draft_version: u32,
+
     id: Uuid,
+
     title: String,
+
     created_at_unix: u64,
+
+    #[serde(default)]
+    tracks: Vec<DraftTrack>,
 }
 
 impl DraftDisc {
@@ -30,9 +36,14 @@ impl DraftDisc {
 
         Ok(Self {
             draft_version: DRAFT_FORMAT_VERSION,
+
             id: Uuid::new_v4(),
+
             title,
+
             created_at_unix,
+
+            tracks: Vec::new(),
         })
     }
 
@@ -52,6 +63,30 @@ impl DraftDisc {
         DISC_TRACK_CAPACITY
     }
 
+    pub fn track_count(&self) -> usize {
+        self.tracks.len()
+    }
+
+    pub fn tracks(&self) -> &[DraftTrack] {
+        &self.tracks
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.track_count() >= DISC_TRACK_CAPACITY
+    }
+
+    pub(crate) fn add_track(&mut self, track: DraftTrack) -> Result<()> {
+        if self.is_full() {
+            return Err(VdiscError::DiscFull {
+                capacity: DISC_TRACK_CAPACITY,
+            });
+        }
+
+        self.tracks.push(track);
+
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.draft_version != DRAFT_FORMAT_VERSION {
             return Err(VdiscError::InvalidInput(format!(
@@ -60,7 +95,17 @@ impl DraftDisc {
             )));
         }
 
-        validate_title(&self.title)
+        validate_title(&self.title)?;
+
+        if self.tracks.len() > DISC_TRACK_CAPACITY {
+            return Err(VdiscError::InvalidInput(format!(
+                "draft contains {} tracks but capacity is {}",
+                self.tracks.len(),
+                DISC_TRACK_CAPACITY
+            )));
+        }
+
+        Ok(())
     }
 }
 
