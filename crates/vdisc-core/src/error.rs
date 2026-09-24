@@ -12,6 +12,8 @@ pub enum VdiscError {
 
     TargetNotDraft { path: PathBuf },
 
+    CustomizationTargetNotDraft { path: PathBuf },
+
     LocalFileRequiresLocalSource,
 
     LocalFileNotFound { path: PathBuf },
@@ -56,6 +58,14 @@ impl fmt::Display for VdiscError {
                 write!(
                     f,
                     "add-track target must be a .vdraft file: {}",
+                    path.display()
+                )
+            }
+
+            Self::CustomizationTargetNotDraft { path } => {
+                write!(
+                    f,
+                    "customization target must be a .vdraft file: {}",
                     path.display()
                 )
             }
@@ -149,6 +159,7 @@ impl Error for VdiscError {
 
             Self::InvalidInput(_)
             | Self::TargetNotDraft { .. }
+            | Self::CustomizationTargetNotDraft { .. }
             | Self::LocalFileRequiresLocalSource
             | Self::LocalFileNotFound { .. }
             | Self::LocalFileNotRegular { .. }
