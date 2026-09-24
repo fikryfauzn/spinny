@@ -25,6 +25,8 @@ pub enum VdiscError {
     DraftIdentityMismatch { expected: Uuid, actual: Uuid },
 
     DiscFull { capacity: usize },
+
+    TrackPositionOutOfBounds { position: usize, track_count: usize },
 }
 
 impl fmt::Display for VdiscError {
@@ -84,6 +86,16 @@ impl fmt::Display for VdiscError {
             Self::DiscFull { capacity } => {
                 write!(f, "CD is full: maximum capacity is {capacity} tracks")
             }
+
+            Self::TrackPositionOutOfBounds {
+                position,
+                track_count,
+            } => {
+                write!(
+                    f,
+                    "track position {position} is invalid for a CD containing {track_count} tracks"
+                )
+            }
         }
     }
 }
@@ -103,7 +115,8 @@ impl Error for VdiscError {
             | Self::AudioValidation { .. }
             | Self::MetadataRead { .. }
             | Self::DraftIdentityMismatch { .. }
-            | Self::DiscFull { .. } => None,
+            | Self::DiscFull { .. }
+            | Self::TrackPositionOutOfBounds { .. } => None,
         }
     }
 }

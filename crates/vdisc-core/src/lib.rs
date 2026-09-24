@@ -6,6 +6,7 @@ pub mod error;
 pub mod metadata;
 pub mod source;
 pub mod track;
+pub mod track_edit;
 pub mod track_import;
 
 pub use add_track::AddTrackRequest;
@@ -23,6 +24,8 @@ pub use metadata::TrackMetadata;
 pub use source::{LocalFileSelection, TrackSourceKind, TrackSourceSelection};
 
 pub use track::DraftTrack;
+
+pub use track_edit::{move_draft_track, remove_draft_track};
 
 pub use track_import::add_validated_local_track;
 

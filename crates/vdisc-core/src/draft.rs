@@ -87,6 +87,28 @@ impl DraftDisc {
         Ok(())
     }
 
+    pub(crate) fn remove_track_at(&mut self, position: usize) -> Result<DraftTrack> {
+        let index = self.position_to_index(position)?;
+
+        Ok(self.tracks.remove(index))
+    }
+
+    pub(crate) fn move_track(&mut self, from_position: usize, to_position: usize) -> Result<bool> {
+        let from_index = self.position_to_index(from_position)?;
+
+        let to_index = self.position_to_index(to_position)?;
+
+        if from_index == to_index {
+            return Ok(false);
+        }
+
+        let track = self.tracks.remove(from_index);
+
+        self.tracks.insert(to_index, track);
+
+        Ok(true)
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.draft_version != DRAFT_FORMAT_VERSION {
             return Err(VdiscError::InvalidInput(format!(
@@ -106,6 +128,17 @@ impl DraftDisc {
         }
 
         Ok(())
+    }
+
+    fn position_to_index(&self, position: usize) -> Result<usize> {
+        if position == 0 || position > self.tracks.len() {
+            return Err(VdiscError::TrackPositionOutOfBounds {
+                position,
+                track_count: self.tracks.len(),
+            });
+        }
+
+        Ok(position - 1)
     }
 }
 
