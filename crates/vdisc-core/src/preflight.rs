@@ -13,6 +13,8 @@ use crate::{
 pub enum PreflightIssueCode {
     DraftInvalid,
 
+    FormatInvalid,
+
     DiscTitleInvalid,
 
     TrackCountInvalid,
@@ -221,6 +223,16 @@ pub fn run_preflight(
         validate_track_metadata(position, track, &mut report);
 
         validate_track_source(&draft_path, position, track, &mut report);
+    }
+
+    // Discard this preview: it validates projection only and is not a burned identity.
+    if let Err(error) =
+        crate::format::Manifest::from_draft(&draft, draft.id(), draft.created_at_unix())
+    {
+        report.push(PreflightIssue::new(
+            PreflightIssueCode::FormatInvalid,
+            error.to_string(),
+        ));
     }
 
     if let Some(stored_image) = draft.appearance().image() {

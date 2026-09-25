@@ -13,6 +13,9 @@ symphonia = { version = "0.6.1", features = ["mp3"] }
 symphonia-adapter-libopus = "0.3.0"
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2.189"
+
 [dev-dependencies]
 hound = "3.5.1"
 tempfile = "3"

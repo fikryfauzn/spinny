@@ -7,6 +7,7 @@ mod draft_migration;
 pub mod draft_store;
 pub mod error;
 pub mod fingerprint;
+pub mod format;
 pub mod metadata;
 pub mod preflight;
 pub mod source;

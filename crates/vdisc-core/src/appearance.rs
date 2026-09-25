@@ -61,6 +61,13 @@ impl DiscAppearance {
         }
 
         if let Some(image) = &self.image {
+            crate::format::check_dimensions(image.width, image.height)
+                .map_err(|error| VdiscError::InvalidInput(error.to_string()))?;
+            if image.source_fingerprint.size_bytes() > crate::format::MAX_ARTWORK_BYTES {
+                return Err(VdiscError::InvalidInput(
+                    "artwork exceeds 20 MiB".to_string(),
+                ));
+            }
             if image.width == 0 || image.height == 0 {
                 return Err(VdiscError::InvalidInput(
                     "disc image dimensions must be greater than zero".to_string(),

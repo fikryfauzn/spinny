@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use image::{ImageFormat, ImageReader};
+use std::io::Read;
 use uuid::Uuid;
 
 use crate::{
@@ -186,72 +186,42 @@ pub(crate) fn inspect_disc_image(source_path: impl AsRef<Path>) -> Result<DiscIm
         )
     })?;
 
-    /*
-     * Guess from actual file contents.
-     *
-     * The extension is not trusted as proof that
-     * this is a real image.
-     */
-    let reader = ImageReader::open(&source_path)
-        .map_err(|error| {
-            customization_image_error(&source_path, format!("could not open image: {error}"))
-        })?
-        .with_guessed_format()
-        .map_err(|error| {
-            customization_image_error(
-                &source_path,
-                format!("could not determine image format: {error}"),
-            )
-        })?;
-
-    let format = reader.format().ok_or_else(|| {
-        customization_image_error(&source_path, "image format could not be determined")
-    })?;
-
-    let format = match format {
-        ImageFormat::Png => DiscImageFormat::Png,
-
-        ImageFormat::Jpeg => DiscImageFormat::Jpeg,
-
-        ImageFormat::WebP => DiscImageFormat::Webp,
-
-        other => {
+    // Bound the encoded read even if the file grows after metadata inspection.
+    if metadata.len() > crate::format::MAX_ARTWORK_BYTES {
+        return Err(customization_image_error(
+            &source_path,
+            "artwork exceeds 20 MiB",
+        ));
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(&source_path)?
+        .take(crate::format::MAX_ARTWORK_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    let inspected = crate::format::inspect_artwork(&bytes)
+        .map_err(|error| customization_image_error(&source_path, error.to_string()))?;
+    let format = match inspected.format.as_str() {
+        "png" => DiscImageFormat::Png,
+        "jpeg" => DiscImageFormat::Jpeg,
+        "webp" => DiscImageFormat::Webp,
+        _ => {
             return Err(customization_image_error(
                 &source_path,
-                format!(
-                    "unsupported disc image format: {other:?}; supported formats are PNG, JPEG, and WebP"
-                ),
+                "unsupported artwork format",
             ));
         }
     };
-
-    let decoded = reader.decode().map_err(|error| {
-        customization_image_error(&source_path, format!("image could not be decoded: {error}"))
-    })?;
-
-    let width = decoded.width();
-
-    let height = decoded.height();
-
-    if width == 0 || height == 0 {
+    let fingerprint = SourceFingerprint::from_bytes(&bytes);
+    if SourceFingerprint::from_file(&source_path)? != fingerprint {
         return Err(customization_image_error(
             &source_path,
-            "image dimensions must be greater than zero",
+            "image changed during validation",
         ));
     }
-
-    let source_fingerprint = SourceFingerprint::from_file(&source_path).map_err(|error| {
-        customization_image_error(
-            &source_path,
-            format!("could not fingerprint image: {error}"),
-        )
-    })?;
-
     Ok(DiscImage::new(
         source_path,
-        source_fingerprint,
-        width,
-        height,
+        fingerprint,
+        inspected.width,
+        inspected.height,
         format,
     ))
 }

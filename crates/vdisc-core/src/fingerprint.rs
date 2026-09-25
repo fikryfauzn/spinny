@@ -14,6 +14,14 @@ pub struct SourceFingerprint {
 }
 
 impl SourceFingerprint {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let digest = Sha256::digest(bytes);
+        Self {
+            size_bytes: bytes.len() as u64,
+            sha256: encode_hex(&digest),
+        }
+    }
+
     pub fn from_file(path: impl AsRef<Path>) -> io::Result<Self> {
         let path = path.as_ref();
 

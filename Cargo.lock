@@ -829,6 +829,7 @@ version = "0.1.0"
 dependencies = [
  "hound",
  "image",
+ "libc",
  "lofty",
  "serde",
  "serde_json",

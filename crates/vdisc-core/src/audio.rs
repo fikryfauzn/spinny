@@ -253,7 +253,7 @@ fn codec_name(codec: AudioCodecId, container: &str) -> String {
         "aac".to_string()
     } else if codec == CODEC_ID_ALAC {
         "alac".to_string()
-    } else if container == "wav" {
+    } else if container == "wav" && crate::format::media::is_pcm(codec) {
         "pcm".to_string()
     } else {
         codec.to_string()
