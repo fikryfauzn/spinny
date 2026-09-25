@@ -7,6 +7,7 @@ pub mod draft_store;
 pub mod error;
 pub mod fingerprint;
 pub mod metadata;
+pub mod preflight;
 pub mod source;
 pub mod source_integrity;
 pub mod track;
@@ -30,6 +31,8 @@ pub use error::{Result, VdiscError};
 pub use fingerprint::SourceFingerprint;
 
 pub use metadata::TrackMetadata;
+
+pub use preflight::{PreflightIssue, PreflightIssueCode, PreflightReport, run_preflight};
 
 pub use source::{LocalFileSelection, TrackSourceKind, TrackSourceSelection};
 

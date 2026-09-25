@@ -133,7 +133,7 @@ impl CustomizationSession {
     }
 }
 
-fn inspect_disc_image(source_path: impl AsRef<Path>) -> Result<DiscImage> {
+pub(crate) fn inspect_disc_image(source_path: impl AsRef<Path>) -> Result<DiscImage> {
     let source_path = source_path.as_ref();
 
     let metadata = fs::metadata(source_path).map_err(|error| {
