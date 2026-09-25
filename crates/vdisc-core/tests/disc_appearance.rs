@@ -9,8 +9,7 @@ use std::{
 use image::{ImageFormat, Rgb, RgbImage};
 
 use vdisc_core::{
-    CustomizationSession, DiscColor, DiscImageFormat, DiscSurface, DraftDisc, VdiscError,
-    load_draft, save_draft,
+    CustomizationSession, DiscColor, DiscImageFormat, DraftDisc, VdiscError, load_draft, save_draft,
 };
 
 fn create_draft(directory: &Path) -> Result<PathBuf, Box<dyn Error>> {
@@ -32,10 +31,12 @@ fn create_png(path: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn new_draft_has_no_customization() -> Result<(), Box<dyn Error>> {
+fn new_draft_has_white_base_and_no_optional_customization() -> Result<(), Box<dyn Error>> {
     let draft = DraftDisc::new("Disc")?;
 
-    assert!(!draft.appearance().has_surface());
+    assert_eq!(*draft.appearance().base_color(), DiscColor::WHITE);
+    assert!(draft.appearance().image().is_none());
+    assert!(draft.appearance().subtitle().is_none());
 
     assert_eq!(draft.appearance().label(), None);
 
@@ -54,10 +55,7 @@ fn solid_disc_color_is_persisted() -> Result<(), Box<dyn Error>> {
 
     let reopened = load_draft(&draft_path)?;
 
-    let color = reopened
-        .appearance()
-        .color()
-        .expect("disc should have a color");
+    let color = reopened.appearance().base_color();
 
     assert_eq!(color.r(), 18);
 
@@ -115,7 +113,7 @@ fn disc_image_is_validated_and_persisted() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn image_replaces_existing_color() -> Result<(), Box<dyn Error>> {
+fn image_preserves_existing_color() -> Result<(), Box<dyn Error>> {
     let sandbox = common::TestSandbox::new()?;
 
     let draft_path = create_draft(sandbox.path())?;
@@ -132,7 +130,7 @@ fn image_replaces_existing_color() -> Result<(), Box<dyn Error>> {
 
     let reopened = load_draft(&draft_path)?;
 
-    assert!(reopened.appearance().color().is_none());
+    assert_eq!(reopened.appearance().base_color().to_hex(), "#FF0000");
 
     assert!(reopened.appearance().image().is_some());
 
@@ -140,7 +138,7 @@ fn image_replaces_existing_color() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn color_replaces_existing_image() -> Result<(), Box<dyn Error>> {
+fn color_preserves_existing_image() -> Result<(), Box<dyn Error>> {
     let sandbox = common::TestSandbox::new()?;
 
     let draft_path = create_draft(sandbox.path())?;
@@ -157,16 +155,9 @@ fn color_replaces_existing_image() -> Result<(), Box<dyn Error>> {
 
     let reopened = load_draft(&draft_path)?;
 
-    assert!(reopened.appearance().image().is_none());
+    assert!(reopened.appearance().image().is_some());
 
-    assert_eq!(
-        reopened
-            .appearance()
-            .color()
-            .expect("disc should have a color",)
-            .to_hex(),
-        "#0A141E"
-    );
+    assert_eq!(reopened.appearance().base_color().to_hex(), "#0A141E");
 
     Ok(())
 }
@@ -227,7 +218,8 @@ fn customization_can_be_cleared() -> Result<(), Box<dyn Error>> {
 
     let reopened = load_draft(&draft_path)?;
 
-    assert!(matches!(reopened.appearance().surface(), DiscSurface::None));
+    assert_eq!(*reopened.appearance().base_color(), DiscColor::WHITE);
+    assert!(reopened.appearance().image().is_none());
 
     assert_eq!(reopened.appearance().label(), None);
 

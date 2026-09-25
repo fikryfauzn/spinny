@@ -277,3 +277,32 @@ fn preflight_never_mutates_draft_or_source() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn expanded_appearance_passes_preflight() -> Result<(), Box<dyn Error>> {
+    let sandbox = common::TestSandbox::new()?;
+    let (draft_path, _) = create_ready_draft(sandbox.path())?;
+    let artwork = sandbox.path().join("art.png");
+    create_png(&artwork)?;
+    let session = CustomizationSession::begin(&draft_path)?;
+    session.set_disc_color(vdisc_core::DiscColor::new(10, 20, 30))?;
+    session.set_disc_image(&artwork)?;
+    session.set_disc_subtitle("Volume One")?;
+    let report = run_preflight(&draft_path, sandbox.path().join("disc.vdisc"));
+    assert!(report.is_ready(), "{:?}", report.issues());
+    Ok(())
+}
+
+#[test]
+fn malformed_subtitle_blocks_preflight() -> Result<(), Box<dyn Error>> {
+    let sandbox = common::TestSandbox::new()?;
+    let (draft_path, _) = create_ready_draft(sandbox.path())?;
+    let mut value: Value = serde_json::from_slice(&fs::read(&draft_path)?)?;
+    value["appearance"]["subtitle"] = Value::String("   ".to_string());
+    fs::write(&draft_path, serde_json::to_vec_pretty(&value)?)?;
+    let before = fs::read(&draft_path)?;
+    let report = run_preflight(&draft_path, sandbox.path().join("disc.vdisc"));
+    assert!(report.has_issue(PreflightIssueCode::DraftInvalid));
+    assert_eq!(fs::read(&draft_path)?, before);
+    Ok(())
+}

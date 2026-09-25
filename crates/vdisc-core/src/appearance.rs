@@ -5,97 +5,94 @@ use serde::{Deserialize, Serialize};
 use crate::{Result, SourceFingerprint, VdiscError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct DiscAppearance {
-    #[serde(default)]
-    surface: DiscSurface,
-
-    #[serde(default)]
+    base_color: DiscColor,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    image: Option<DiscImage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    subtitle: Option<String>,
 }
 
 impl DiscAppearance {
-    pub fn surface(&self) -> &DiscSurface {
-        &self.surface
+    pub fn base_color(&self) -> &DiscColor {
+        &self.base_color
+    }
+
+    pub fn image(&self) -> Option<&DiscImage> {
+        self.image.as_ref()
     }
 
     pub fn label(&self) -> Option<&str> {
         self.label.as_deref()
     }
 
-    pub fn color(&self) -> Option<&DiscColor> {
-        match &self.surface {
-            DiscSurface::Color(color) => Some(color),
-
-            _ => None,
-        }
+    pub fn subtitle(&self) -> Option<&str> {
+        self.subtitle.as_deref()
     }
 
-    pub fn image(&self) -> Option<&DiscImage> {
-        match &self.surface {
-            DiscSurface::Image(image) => Some(image),
-
-            _ => None,
-        }
+    pub(crate) fn set_base_color(&mut self, color: DiscColor) {
+        self.base_color = color;
     }
 
-    pub fn has_surface(&self) -> bool {
-        !matches!(self.surface, DiscSurface::None)
-    }
-
-    pub(crate) fn set_surface(&mut self, surface: DiscSurface) {
-        self.surface = surface;
+    pub(crate) fn set_image(&mut self, image: Option<DiscImage>) {
+        self.image = image;
     }
 
     pub(crate) fn set_label(&mut self, label: Option<String>) {
         self.label = label;
     }
 
+    pub(crate) fn set_subtitle(&mut self, subtitle: Option<String>) {
+        self.subtitle = subtitle;
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
-        if let Some(label) = &self.label
-            && label.trim().is_empty()
-        {
-            return Err(VdiscError::InvalidInput(
-                "disc label cannot be empty".to_string(),
-            ));
+        for (name, value) in [("label", self.label()), ("subtitle", self.subtitle())] {
+            if let Some(value) = value
+                && value.trim().is_empty()
+            {
+                return Err(VdiscError::InvalidInput(format!(
+                    "disc {name} cannot be empty"
+                )));
+            }
         }
 
-        if let DiscSurface::Image(image) = &self.surface {
+        if let Some(image) = &self.image {
             if image.width == 0 || image.height == 0 {
                 return Err(VdiscError::InvalidInput(
                     "disc image dimensions must be greater than zero".to_string(),
                 ));
             }
-
             if image.source_path.as_os_str().is_empty() {
                 return Err(VdiscError::InvalidInput(
                     "disc image source path cannot be empty".to_string(),
                 ));
             }
         }
-
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum DiscSurface {
-    #[default]
-    None,
-
-    Color(DiscColor),
-
-    Image(DiscImage),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiscColor {
     r: u8,
     g: u8,
     b: u8,
 }
 
+impl Default for DiscColor {
+    fn default() -> Self {
+        Self::WHITE
+    }
+}
+
 impl DiscColor {
+    pub const WHITE: Self = Self::new(255, 255, 255);
+
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
     }

@@ -29,7 +29,7 @@ pub fn save_draft(path: impl AsRef<Path>, draft: &DraftDisc) -> Result<()> {
 pub fn load_draft(path: impl AsRef<Path>) -> Result<DraftDisc> {
     let data = fs::read(path)?;
 
-    let draft: DraftDisc = serde_json::from_slice(&data)?;
+    let draft = crate::draft_migration::decode_draft(&data)?;
 
     draft.validate()?;
 

@@ -3,11 +3,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{DISC_TRACK_CAPACITY, DiscAppearance, DiscSurface, DraftTrack, Result, VdiscError};
+use crate::{DISC_TRACK_CAPACITY, DiscAppearance, DiscImage, DraftTrack, Result, VdiscError};
 
-pub const DRAFT_FORMAT_VERSION: u32 = 1;
+pub const DRAFT_FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DraftDisc {
     draft_version: u32,
 
@@ -20,7 +21,6 @@ pub struct DraftDisc {
     #[serde(default)]
     tracks: Vec<DraftTrack>,
 
-    #[serde(default)]
     appearance: DiscAppearance,
 }
 
@@ -118,12 +118,39 @@ impl DraftDisc {
         Ok(true)
     }
 
-    pub(crate) fn set_disc_surface(&mut self, surface: DiscSurface) {
-        self.appearance.set_surface(surface);
+    pub(crate) fn from_legacy(
+        id: Uuid,
+        title: String,
+        created_at_unix: u64,
+        tracks: Vec<DraftTrack>,
+        appearance: DiscAppearance,
+    ) -> Result<Self> {
+        let draft = Self {
+            draft_version: DRAFT_FORMAT_VERSION,
+            id,
+            title,
+            created_at_unix,
+            tracks,
+            appearance,
+        };
+        draft.validate()?;
+        Ok(draft)
+    }
+
+    pub(crate) fn set_disc_color(&mut self, color: crate::DiscColor) {
+        self.appearance.set_base_color(color);
+    }
+
+    pub(crate) fn set_disc_image(&mut self, image: Option<DiscImage>) {
+        self.appearance.set_image(image);
     }
 
     pub(crate) fn set_disc_label(&mut self, label: Option<String>) {
         self.appearance.set_label(label);
+    }
+
+    pub(crate) fn set_disc_subtitle(&mut self, subtitle: Option<String>) {
+        self.appearance.set_subtitle(subtitle);
     }
 
     pub fn validate(&self) -> Result<()> {

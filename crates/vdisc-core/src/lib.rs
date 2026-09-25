@@ -3,6 +3,7 @@ pub mod appearance;
 pub mod audio;
 pub mod customization;
 pub mod draft;
+mod draft_migration;
 pub mod draft_store;
 pub mod error;
 pub mod fingerprint;
@@ -16,7 +17,7 @@ pub mod track_import;
 
 pub use add_track::AddTrackRequest;
 
-pub use appearance::{DiscAppearance, DiscColor, DiscImage, DiscImageFormat, DiscSurface};
+pub use appearance::{DiscAppearance, DiscColor, DiscImage, DiscImageFormat};
 
 pub use audio::ValidatedLocalAudio;
 

@@ -7,8 +7,8 @@ use image::{ImageFormat, ImageReader};
 use uuid::Uuid;
 
 use crate::{
-    DiscColor, DiscImage, DiscImageFormat, DiscSurface, DraftDisc, Result, SourceFingerprint,
-    VdiscError, load_draft, save_draft,
+    DiscColor, DiscImage, DiscImageFormat, DraftDisc, Result, SourceFingerprint, VdiscError,
+    load_draft, save_draft,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,7 +55,7 @@ impl CustomizationSession {
     pub fn set_disc_color(&self, color: DiscColor) -> Result<()> {
         let mut draft = self.load_target()?;
 
-        draft.set_disc_surface(DiscSurface::Color(color));
+        draft.set_disc_color(color);
 
         save_draft(&self.target_path, &draft)?;
 
@@ -73,17 +73,20 @@ impl CustomizationSession {
 
         let mut draft = self.load_target()?;
 
-        draft.set_disc_surface(DiscSurface::Image(image.clone()));
+        draft.set_disc_image(Some(image.clone()));
 
         save_draft(&self.target_path, &draft)?;
 
         Ok(image)
     }
 
+    /// Reset the base to white and remove artwork; preserve label and subtitle.
     pub fn clear_disc_surface(&self) -> Result<()> {
         let mut draft = self.load_target()?;
 
-        draft.set_disc_surface(DiscSurface::None);
+        draft.set_disc_color(DiscColor::WHITE);
+
+        draft.set_disc_image(None);
 
         save_draft(&self.target_path, &draft)?;
 
@@ -116,6 +119,35 @@ impl CustomizationSession {
         save_draft(&self.target_path, &draft)?;
 
         Ok(())
+    }
+
+    /// Reset the base to white without removing artwork.
+    pub fn clear_disc_color(&self) -> Result<()> {
+        self.set_disc_color(DiscColor::WHITE)
+    }
+
+    pub fn clear_disc_image(&self) -> Result<()> {
+        let mut draft = self.load_target()?;
+        draft.set_disc_image(None);
+        save_draft(&self.target_path, &draft)
+    }
+
+    pub fn set_disc_subtitle(&self, subtitle: impl Into<String>) -> Result<()> {
+        let subtitle = subtitle.into();
+        if subtitle.trim().is_empty() {
+            return Err(VdiscError::InvalidInput(
+                "disc subtitle cannot be empty; use clear_disc_subtitle() to remove it".to_string(),
+            ));
+        }
+        let mut draft = self.load_target()?;
+        draft.set_disc_subtitle(Some(subtitle));
+        save_draft(&self.target_path, &draft)
+    }
+
+    pub fn clear_disc_subtitle(&self) -> Result<()> {
+        let mut draft = self.load_target()?;
+        draft.set_disc_subtitle(None);
+        save_draft(&self.target_path, &draft)
     }
 
     fn load_target(&self) -> Result<DraftDisc> {
