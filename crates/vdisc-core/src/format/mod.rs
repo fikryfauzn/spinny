@@ -4,6 +4,7 @@ mod error;
 mod json;
 pub(crate) mod media;
 mod schema;
+pub(crate) mod writer;
 mod zip;
 
 pub use artwork::{ImageInfo, image_worker_main, inspect_artwork};

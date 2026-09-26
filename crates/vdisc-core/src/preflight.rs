@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    AddTrackRequest, DISC_TRACK_CAPACITY, SourceFingerprint, TrackMetadata, TrackSourceKind,
-    ValidatedLocalAudio, customization::inspect_disc_image, load_draft,
+    DISC_TRACK_CAPACITY, DraftDisc, SourceFingerprint, TrackMetadata, TrackSourceKind,
+    TrackSourceSelection, ValidatedLocalAudio, customization::inspect_disc_image, load_draft,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +46,8 @@ pub enum PreflightIssueCode {
     OutputParentReadOnly,
 
     OutputAlreadyExists,
+
+    OutputInspectionFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,6 +184,29 @@ pub fn run_preflight(
         }
     };
 
+    validate_snapshot(&draft, &draft_path, &mut report);
+    report
+}
+
+pub(crate) fn preflight_snapshot(
+    draft: &DraftDisc,
+    draft_path: &Path,
+    output_path: &Path,
+) -> PreflightReport {
+    let mut report = PreflightReport::new(draft_path.to_path_buf(), output_path.to_path_buf());
+    validate_output_destination(output_path, &mut report);
+    validate_snapshot(draft, draft_path, &mut report);
+    report
+}
+
+fn validate_snapshot(draft: &DraftDisc, draft_path: &Path, report: &mut PreflightReport) {
+    if draft_path.extension() != Some(std::ffi::OsStr::new("vdraft")) {
+        report.push(PreflightIssue::for_path(
+            PreflightIssueCode::DraftInvalid,
+            draft_path,
+            "draft must use .vdraft extension",
+        ));
+    }
     /*
      * These are deliberately checked again even though
      * DraftDisc itself normally protects the invariants.
@@ -220,14 +245,14 @@ pub fn run_preflight(
             ));
         }
 
-        validate_track_metadata(position, track, &mut report);
+        validate_track_metadata(position, track, report);
 
-        validate_track_source(&draft_path, position, track, &mut report);
+        validate_track_source(draft_path, draft.id(), position, track, report);
     }
 
     // Discard this preview: it validates projection only and is not a burned identity.
     if let Err(error) =
-        crate::format::Manifest::from_draft(&draft, draft.id(), draft.created_at_unix())
+        crate::format::Manifest::from_draft(draft, draft.id(), draft.created_at_unix())
     {
         report.push(PreflightIssue::new(
             PreflightIssueCode::FormatInvalid,
@@ -262,8 +287,6 @@ pub fn run_preflight(
             }
         }
     }
-
-    report
 }
 
 fn validate_track_metadata(
@@ -294,6 +317,7 @@ fn validate_track_metadata(
 
 fn validate_track_source(
     draft_path: &Path,
+    draft_id: uuid::Uuid,
     position: usize,
     track: &crate::DraftTrack,
     report: &mut PreflightReport,
@@ -388,13 +412,10 @@ fn validate_track_source(
      * Decoding proves the burn input is still a usable
      * audio file through the supported VDISC pipeline.
      */
-    let audio = AddTrackRequest::begin(draft_path)
-        .and_then(|request| {
-            request
-                .select_source(TrackSourceKind::Local)
-                .select_local_file(source_path)
-        })
-        .and_then(ValidatedLocalAudio::validate);
+    let audio =
+        TrackSourceSelection::new(draft_path.to_path_buf(), draft_id, TrackSourceKind::Local)
+            .select_local_file(source_path)
+            .and_then(ValidatedLocalAudio::validate);
 
     match audio {
         Ok(audio) => {
@@ -433,12 +454,18 @@ fn validate_output_destination(output_path: &Path, report: &mut PreflightReport)
         ));
     }
 
-    if output_path.exists() {
-        report.push(PreflightIssue::for_path(
+    match fs::symlink_metadata(output_path) {
+        Ok(_) => report.push(PreflightIssue::for_path(
             PreflightIssueCode::OutputAlreadyExists,
             output_path,
-            "burn output already exists; V0.1 does not define overwrite behavior",
-        ));
+            "burn output already exists",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => report.push(PreflightIssue::for_path(
+            PreflightIssueCode::OutputInspectionFailed,
+            output_path,
+            format!("could not inspect burn destination: {error}"),
+        )),
     }
 
     let parent = output_path

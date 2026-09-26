@@ -1,3 +1,5 @@
+pub mod burn;
+pub use burn::{BurnDurability, BurnError, BurnPhase, BurnResult, CleanupFailure, burn};
 pub mod add_track;
 pub mod appearance;
 pub mod audio;
