@@ -10,6 +10,10 @@ pub enum VdiscError {
 
     InvalidInput(String),
 
+    DraftTargetNotEditable { path: PathBuf },
+
+    DraftTargetChanged { path: PathBuf },
+
     TargetNotDraft { path: PathBuf },
 
     CustomizationTargetNotDraft { path: PathBuf },
@@ -52,6 +56,22 @@ impl fmt::Display for VdiscError {
 
             Self::InvalidInput(message) => {
                 write!(f, "invalid input: {message}")
+            }
+
+            Self::DraftTargetNotEditable { path } => {
+                write!(
+                    f,
+                    "draft target is not an editable .vdraft object: {}",
+                    path.display()
+                )
+            }
+
+            Self::DraftTargetChanged { path } => {
+                write!(
+                    f,
+                    "draft target changed while the save was being prepared: {}",
+                    path.display()
+                )
             }
 
             Self::TargetNotDraft { path } => {
@@ -158,6 +178,8 @@ impl Error for VdiscError {
             Self::Serialization(error) => Some(error),
 
             Self::InvalidInput(_)
+            | Self::DraftTargetNotEditable { .. }
+            | Self::DraftTargetChanged { .. }
             | Self::TargetNotDraft { .. }
             | Self::CustomizationTargetNotDraft { .. }
             | Self::LocalFileRequiresLocalSource

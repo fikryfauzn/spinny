@@ -3,6 +3,7 @@ pub use burn::{BurnDurability, BurnError, BurnPhase, BurnResult, CleanupFailure,
 pub mod add_track;
 pub mod appearance;
 pub mod audio;
+pub mod burned_disc;
 pub mod customization;
 pub mod draft;
 mod draft_migration;
@@ -23,6 +24,8 @@ pub use add_track::AddTrackRequest;
 pub use appearance::{DiscAppearance, DiscColor, DiscImage, DiscImageFormat};
 
 pub use audio::ValidatedLocalAudio;
+
+pub use burned_disc::BurnedDisc;
 
 pub use customization::CustomizationSession;
 

@@ -187,12 +187,13 @@ fn draft_replacement_after_snapshot_does_not_reload_draft() {
     let dir = tempfile::tempdir().unwrap();
     let (draft, _) = ready(dir.path());
     let snapshot = crate::load_draft(&draft).unwrap();
+    let snapshot_bytes = fs::read(&draft).unwrap();
     fs::write(&draft, b"invalid draft").unwrap();
     let report =
         crate::preflight::preflight_snapshot(&snapshot, &draft, &dir.path().join("out.vdisc"));
     assert!(report.is_ready(), "{:?}", report.issues());
     assert!(!crate::run_preflight(&draft, dir.path().join("out.vdisc")).is_ready());
-    save_draft(&draft, &snapshot).unwrap();
+    fs::write(&draft, snapshot_bytes).unwrap();
     let result = linux::burn_with(
         &draft,
         &dir.path().join("out.vdisc"),
