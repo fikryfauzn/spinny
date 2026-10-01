@@ -25,7 +25,7 @@ pub use appearance::{DiscAppearance, DiscColor, DiscImage, DiscImageFormat};
 
 pub use audio::ValidatedLocalAudio;
 
-pub use burned_disc::BurnedDisc;
+pub use burned_disc::{BurnedDisc, DiscPayload};
 
 pub use customization::CustomizationSession;
 

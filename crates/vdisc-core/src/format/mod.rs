@@ -1,4 +1,5 @@
-//! VDISC V1 schema and validation contract. No production burner or playback API.
+//! VDISC V1 schema, validation, writer plumbing, and reader support.
+//! Playback state and audio output remain separate concerns.
 mod artwork;
 mod error;
 mod json;
@@ -37,14 +38,46 @@ impl ValidatedFormat {
     }
 }
 
+/// Stable payload location produced by the same bounded ZIP parser used by the
+/// format validator. Consumers outside this crate never receive raw offsets.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PayloadLocation {
+    pub(crate) start: u64,
+    pub(crate) len: u64,
+}
+
+/// Internal result used by the supported reader. Validation and ZIP indexing
+/// happen once against the same already-open file handle.
+#[derive(Debug)]
+pub(crate) struct ValidatedArchive {
+    pub(crate) validated: ValidatedFormat,
+    pub(crate) payloads: BTreeMap<String, PayloadLocation>,
+}
+
 /// Validates a complete on-disk VDISC. Reads only; never extracts or mutates.
 /// The result attests to this validation pass, not to future changes to the path.
 pub fn validate_vdisc(path: impl AsRef<Path>) -> FormatResult<ValidatedFormat> {
-    let mut file = File::open(path)?;
+    let file = File::open(path)?;
+    Ok(validate_open_file(&file)?.validated)
+}
+
+/// Validate an already-open file descriptor and retain the payload locations
+/// derived during that exact validation pass. This is the bridge used by the
+/// Objective 15 reader so pathname replacement cannot switch the file later.
+pub(crate) fn validate_open_file(file: &File) -> FormatResult<ValidatedArchive> {
     if !file.metadata()?.is_file() {
         return Err(FormatError::new(K::Io, "VDISC must be a regular file"));
     }
-    let entries = zip::index(&mut file)?;
+
+    // The clone refers to the same open file. Validation is allowed to seek;
+    // reader payload access uses positioned I/O and does not depend on this
+    // shared cursor afterwards.
+    let mut reader = file.try_clone()?;
+    validate_file(&mut reader)
+}
+
+fn validate_file(file: &mut File) -> FormatResult<ValidatedArchive> {
+    let entries = zip::index(file)?;
     let index: BTreeMap<&str, &Entry> = entries.iter().map(|e| (e.name.as_str(), e)).collect();
     let get = |name: &str| {
         index.get(name).copied().ok_or_else(|| {
@@ -52,13 +85,13 @@ pub fn validate_vdisc(path: impl AsRef<Path>) -> FormatResult<ValidatedFormat> {
         })
     };
     let manifest = parse_manifest(&read_small(
-        &mut file,
+        file,
         get("manifest.json")?,
         MAX_MANIFEST_BYTES,
     )?)
     .map_err(|e| e.at("manifest.json"))?;
     let integrity = parse_integrity(&read_small(
-        &mut file,
+        file,
         get("integrity.json")?,
         MAX_INTEGRITY_BYTES,
     )?)
@@ -110,13 +143,13 @@ pub fn validate_vdisc(path: impl AsRef<Path>) -> FormatResult<ValidatedFormat> {
             )
             .at(name));
         }
-        let hash = hash_entry(&mut file, entry)?;
+        let hash = hash_entry(file, entry)?;
         if hash != record.sha256 {
             return Err(FormatError::new(K::IntegrityMismatch, "SHA-256 mismatch").at(name));
         }
     }
     if let Some(image) = &manifest.appearance.image {
-        let bytes = read_small(&mut file, get(&image.path)?, MAX_ARTWORK_BYTES)?;
+        let bytes = read_small(file, get(&image.path)?, MAX_ARTWORK_BYTES)?;
         let actual = inspect_artwork(&bytes).map_err(|e| e.at(&image.path))?;
         if actual.format != image.format
             || actual.width != image.width
@@ -130,11 +163,28 @@ pub fn validate_vdisc(path: impl AsRef<Path>) -> FormatResult<ValidatedFormat> {
         }
     }
     for track in &manifest.tracks {
-        media::validate_audio(&file, get(&track.path)?, track)?;
+        media::validate_audio(file, get(&track.path)?, track)?;
     }
-    Ok(ValidatedFormat {
-        manifest,
-        integrity,
+
+    let payloads = entries
+        .iter()
+        .map(|entry| {
+            (
+                entry.name.clone(),
+                PayloadLocation {
+                    start: entry.data,
+                    len: entry.size,
+                },
+            )
+        })
+        .collect();
+
+    Ok(ValidatedArchive {
+        validated: ValidatedFormat {
+            manifest,
+            integrity,
+        },
+        payloads,
     })
 }
 
@@ -156,6 +206,7 @@ fn read_small(file: &mut File, entry: &Entry, limit: u64) -> FormatResult<Vec<u8
     }
     Ok(bytes)
 }
+
 fn hash_entry(file: &mut File, entry: &Entry) -> FormatResult<String> {
     file.seek(SeekFrom::Start(entry.data))?;
     let mut remaining = entry.size;
