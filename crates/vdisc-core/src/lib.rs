@@ -11,6 +11,8 @@ pub mod draft_store;
 pub mod error;
 pub mod fingerprint;
 pub mod format;
+#[cfg(target_os = "linux")]
+pub mod linux_playback;
 pub mod metadata;
 pub mod player;
 pub mod preflight;
@@ -39,6 +41,12 @@ pub use error::{Result, VdiscError};
 pub use fingerprint::SourceFingerprint;
 
 pub use metadata::TrackMetadata;
+
+#[cfg(target_os = "linux")]
+pub use linux_playback::{
+    CpalBackend, LinuxAudioPlayer, PlaybackBackend, PlaybackBackendEvent, PlaybackError,
+    PlaybackPlayer, PlaybackResult, PlaybackSession,
+};
 
 pub use player::{Player, PlayerAction, PlayerBoundary, PlayerError, PlayerResult, PlayerState};
 
