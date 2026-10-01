@@ -12,6 +12,7 @@ pub mod error;
 pub mod fingerprint;
 pub mod format;
 pub mod metadata;
+pub mod player;
 pub mod preflight;
 pub mod source;
 pub mod source_integrity;
@@ -38,6 +39,8 @@ pub use error::{Result, VdiscError};
 pub use fingerprint::SourceFingerprint;
 
 pub use metadata::TrackMetadata;
+
+pub use player::{Player, PlayerAction, PlayerBoundary, PlayerError, PlayerResult, PlayerState};
 
 pub use preflight::{PreflightIssue, PreflightIssueCode, PreflightReport, run_preflight};
 
