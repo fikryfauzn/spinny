@@ -136,11 +136,12 @@ pub enum LidAction {
     Closed,
 }
 
-/// A lid action was not legal for the current mechanical lid state.
+/// A lid action was not legal for the current appliance state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LidTransitionError {
     action: LidAction,
     state: LidState,
+    disc_state: Option<DiscState>,
 }
 
 impl LidTransitionError {
@@ -151,19 +152,91 @@ impl LidTransitionError {
     pub const fn state(self) -> LidState {
         self.state
     }
+
+    /// Disc state when disc choreography specifically blocked this lid action.
+    ///
+    /// `None` means the lid state itself made the action invalid.
+    pub const fn disc_state(self) -> Option<DiscState> {
+        self.disc_state
+    }
 }
 
 impl fmt::Display for LidTransitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "lid action {:?} is invalid while lid is {:?}",
-            self.action, self.state
-        )
+        if let Some(disc_state) = self.disc_state {
+            write!(
+                f,
+                "lid action {:?} is invalid while lid is {:?} and disc is {:?}",
+                self.action, self.state, disc_state
+            )
+        } else {
+            write!(
+                f,
+                "lid action {:?} is invalid while lid is {:?}",
+                self.action, self.state
+            )
+        }
     }
 }
 
 impl Error for LidTransitionError {}
+
+/// Explicit inputs to the physical disc insertion/removal handshake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscAction {
+    RequestInsert,
+    ValidationAccepted,
+    ValidationRejected,
+    Seated,
+    RequestRemove,
+    Removed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscTransitionErrorKind {
+    LidNotOpen,
+    InvalidDiscState,
+    ValidationRequired,
+}
+
+/// A disc action was not legal for the current appliance state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiscTransitionError {
+    action: DiscAction,
+    lid_state: LidState,
+    disc_state: DiscState,
+    kind: DiscTransitionErrorKind,
+}
+
+impl DiscTransitionError {
+    pub const fn action(self) -> DiscAction {
+        self.action
+    }
+
+    pub const fn lid_state(self) -> LidState {
+        self.lid_state
+    }
+
+    pub const fn disc_state(self) -> DiscState {
+        self.disc_state
+    }
+
+    pub const fn kind(self) -> DiscTransitionErrorKind {
+        self.kind
+    }
+}
+
+impl fmt::Display for DiscTransitionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "disc action {:?} is invalid while lid is {:?} and disc is {:?}: {:?}",
+            self.action, self.lid_state, self.disc_state, self.kind
+        )
+    }
+}
+
+impl Error for DiscTransitionError {}
 
 /// Authoritative state owned by the D-E200 appliance layer.
 ///
@@ -182,6 +255,7 @@ pub struct De200Controller {
     volume: Volume,
     resume_position: Option<PlaybackPosition>,
     error: Option<ApplianceErrorState>,
+    insertion_validated: bool,
 }
 
 impl De200Controller {
@@ -200,6 +274,7 @@ impl De200Controller {
             volume: initial_volume,
             resume_position: None,
             error: None,
+            insertion_validated: false,
         }
     }
 
@@ -253,13 +328,108 @@ impl De200Controller {
     }
 
     /// Begin closing the lid.
+    ///
+    /// An empty or fully seated disc is valid. Closing while insertion or
+    /// removal is still in progress is rejected so visual and logical state
+    /// cannot cross each other.
     pub fn request_lid_close(&mut self) -> Result<(), LidTransitionError> {
-        self.transition_lid(LidAction::RequestClose, LidState::Open, LidState::Closing)
+        if self.lid != LidState::Open {
+            return Err(LidTransitionError {
+                action: LidAction::RequestClose,
+                state: self.lid,
+                disc_state: None,
+            });
+        }
+
+        if !matches!(self.disc, DiscState::Absent | DiscState::Seated) {
+            return Err(LidTransitionError {
+                action: LidAction::RequestClose,
+                state: self.lid,
+                disc_state: Some(self.disc),
+            });
+        }
+
+        self.lid = LidState::Closing;
+        Ok(())
     }
 
     /// Acknowledge that the visual/mechanical closing motion completed.
     pub fn notify_lid_closed(&mut self) -> Result<(), LidTransitionError> {
         self.transition_lid(LidAction::Closed, LidState::Closing, LidState::Closed)
+    }
+
+    /// Begin physical insertion of a virtual disc.
+    ///
+    /// This objective owns only the appliance handshake. Real `.vdisc`
+    /// validation remains a backend responsibility and is represented here by
+    /// a later explicit validation-success or validation-failure event.
+    pub fn request_disc_insert(&mut self) -> Result<(), DiscTransitionError> {
+        self.require_lid_open(DiscAction::RequestInsert)?;
+        self.require_disc_state(DiscAction::RequestInsert, DiscState::Absent)?;
+
+        self.disc = DiscState::Inserting;
+        self.insertion_validated = false;
+        Ok(())
+    }
+
+    /// Record successful validation of the disc currently being inserted.
+    ///
+    /// The future backend adapter must call this only after `.vdisc`
+    /// validation succeeds. Validation alone does not complete physical seating.
+    pub fn notify_disc_validation_accepted(&mut self) -> Result<(), DiscTransitionError> {
+        self.require_lid_open(DiscAction::ValidationAccepted)?;
+        self.require_disc_state(DiscAction::ValidationAccepted, DiscState::Inserting)?;
+
+        self.insertion_validated = true;
+        Ok(())
+    }
+
+    /// Reject the current insertion attempt after validation fails.
+    ///
+    /// Error translation and LCD messaging remain Objective 12. For now the
+    /// controller only guarantees that a rejected disc never becomes seated.
+    pub fn notify_disc_validation_rejected(&mut self) -> Result<(), DiscTransitionError> {
+        self.require_lid_open(DiscAction::ValidationRejected)?;
+        self.require_disc_state(DiscAction::ValidationRejected, DiscState::Inserting)?;
+
+        self.disc = DiscState::Absent;
+        self.insertion_validated = false;
+        Ok(())
+    }
+
+    /// Acknowledge that validated insertion has physically completed.
+    pub fn notify_disc_seated(&mut self) -> Result<(), DiscTransitionError> {
+        self.require_lid_open(DiscAction::Seated)?;
+        self.require_disc_state(DiscAction::Seated, DiscState::Inserting)?;
+
+        if !self.insertion_validated {
+            return Err(self.disc_error(
+                DiscAction::Seated,
+                DiscTransitionErrorKind::ValidationRequired,
+            ));
+        }
+
+        self.disc = DiscState::Seated;
+        self.insertion_validated = false;
+        Ok(())
+    }
+
+    /// Begin physical removal of a seated disc.
+    pub fn request_disc_remove(&mut self) -> Result<(), DiscTransitionError> {
+        self.require_lid_open(DiscAction::RequestRemove)?;
+        self.require_disc_state(DiscAction::RequestRemove, DiscState::Seated)?;
+
+        self.disc = DiscState::Removing;
+        Ok(())
+    }
+
+    /// Acknowledge that physical disc removal completed.
+    pub fn notify_disc_removed(&mut self) -> Result<(), DiscTransitionError> {
+        self.require_lid_open(DiscAction::Removed)?;
+        self.require_disc_state(DiscAction::Removed, DiscState::Removing)?;
+
+        self.disc = DiscState::Absent;
+        Ok(())
     }
 
     fn transition_lid(
@@ -272,10 +442,40 @@ impl De200Controller {
             return Err(LidTransitionError {
                 action,
                 state: self.lid,
+                disc_state: None,
             });
         }
 
         self.lid = next;
         Ok(())
+    }
+
+    fn require_lid_open(&self, action: DiscAction) -> Result<(), DiscTransitionError> {
+        if self.lid != LidState::Open {
+            return Err(self.disc_error(action, DiscTransitionErrorKind::LidNotOpen));
+        }
+
+        Ok(())
+    }
+
+    fn require_disc_state(
+        &self,
+        action: DiscAction,
+        expected: DiscState,
+    ) -> Result<(), DiscTransitionError> {
+        if self.disc != expected {
+            return Err(self.disc_error(action, DiscTransitionErrorKind::InvalidDiscState));
+        }
+
+        Ok(())
+    }
+
+    fn disc_error(&self, action: DiscAction, kind: DiscTransitionErrorKind) -> DiscTransitionError {
+        DiscTransitionError {
+            action,
+            lid_state: self.lid,
+            disc_state: self.disc,
+            kind,
+        }
     }
 }

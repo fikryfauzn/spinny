@@ -1,6 +1,6 @@
 use vdisc_appliance::{
-    De200Controller, DiscState, LidAction, LidState, PlayMode, PlaybackPosition, TransportState,
-    Volume, VolumeError,
+    De200Controller, DiscAction, DiscState, DiscTransitionErrorKind, LidAction, LidState, PlayMode,
+    PlaybackPosition, TransportState, Volume, VolumeError,
 };
 
 fn initial_volume() -> Volume {
@@ -173,4 +173,167 @@ fn out_of_order_close_completion_is_rejected_without_mutation() {
     assert_eq!(error.action(), LidAction::Closed);
     assert_eq!(error.state(), LidState::Open);
     assert_eq!(controller.lid_state(), LidState::Open);
+}
+
+fn open_lid(controller: &mut De200Controller) {
+    controller.request_lid_open().unwrap();
+    controller.notify_lid_opened().unwrap();
+}
+
+fn seat_disc(controller: &mut De200Controller) {
+    open_lid(controller);
+    controller.request_disc_insert().unwrap();
+    controller.notify_disc_validation_accepted().unwrap();
+    controller.notify_disc_seated().unwrap();
+}
+
+#[test]
+fn insert_requires_fully_open_lid() {
+    let mut controller = De200Controller::new(initial_volume());
+
+    let error = controller.request_disc_insert().unwrap_err();
+
+    assert_eq!(error.action(), DiscAction::RequestInsert);
+    assert_eq!(error.kind(), DiscTransitionErrorKind::LidNotOpen);
+    assert_eq!(error.lid_state(), LidState::Closed);
+    assert_eq!(error.disc_state(), DiscState::Absent);
+    assert_eq!(controller.disc_state(), DiscState::Absent);
+}
+
+#[test]
+fn open_empty_player_can_begin_insertion_without_implicit_seating() {
+    let mut controller = De200Controller::new(initial_volume());
+    open_lid(&mut controller);
+
+    controller.request_disc_insert().unwrap();
+
+    assert_eq!(controller.disc_state(), DiscState::Inserting);
+}
+
+#[test]
+fn seating_requires_explicit_validation_success() {
+    let mut controller = De200Controller::new(initial_volume());
+    open_lid(&mut controller);
+    controller.request_disc_insert().unwrap();
+
+    let error = controller.notify_disc_seated().unwrap_err();
+
+    assert_eq!(error.action(), DiscAction::Seated);
+    assert_eq!(error.kind(), DiscTransitionErrorKind::ValidationRequired);
+    assert_eq!(controller.disc_state(), DiscState::Inserting);
+}
+
+#[test]
+fn validated_insertion_can_commit_seated_state() {
+    let mut controller = De200Controller::new(initial_volume());
+    open_lid(&mut controller);
+    controller.request_disc_insert().unwrap();
+
+    controller.notify_disc_validation_accepted().unwrap();
+    assert_eq!(controller.disc_state(), DiscState::Inserting);
+
+    controller.notify_disc_seated().unwrap();
+    assert_eq!(controller.disc_state(), DiscState::Seated);
+}
+
+#[test]
+fn rejected_validation_never_enters_seated_state() {
+    let mut controller = De200Controller::new(initial_volume());
+    open_lid(&mut controller);
+    controller.request_disc_insert().unwrap();
+
+    controller.notify_disc_validation_rejected().unwrap();
+
+    assert_eq!(controller.disc_state(), DiscState::Absent);
+}
+
+#[test]
+fn duplicate_insert_request_is_rejected_without_mutation() {
+    let mut controller = De200Controller::new(initial_volume());
+    open_lid(&mut controller);
+    controller.request_disc_insert().unwrap();
+
+    let error = controller.request_disc_insert().unwrap_err();
+
+    assert_eq!(error.kind(), DiscTransitionErrorKind::InvalidDiscState);
+    assert_eq!(error.disc_state(), DiscState::Inserting);
+    assert_eq!(controller.disc_state(), DiscState::Inserting);
+}
+
+#[test]
+fn remove_requires_fully_open_lid_and_seated_disc() {
+    let mut controller = De200Controller::new(initial_volume());
+    open_lid(&mut controller);
+
+    let error = controller.request_disc_remove().unwrap_err();
+
+    assert_eq!(error.action(), DiscAction::RequestRemove);
+    assert_eq!(error.kind(), DiscTransitionErrorKind::InvalidDiscState);
+    assert_eq!(error.disc_state(), DiscState::Absent);
+    assert_eq!(controller.disc_state(), DiscState::Absent);
+}
+
+#[test]
+fn seated_disc_can_begin_removal_and_completion_returns_absent() {
+    let mut controller = De200Controller::new(initial_volume());
+    seat_disc(&mut controller);
+
+    controller.request_disc_remove().unwrap();
+    assert_eq!(controller.disc_state(), DiscState::Removing);
+
+    controller.notify_disc_removed().unwrap();
+    assert_eq!(controller.disc_state(), DiscState::Absent);
+}
+
+#[test]
+fn out_of_order_removal_completion_is_rejected_without_mutation() {
+    let mut controller = De200Controller::new(initial_volume());
+    seat_disc(&mut controller);
+
+    let error = controller.notify_disc_removed().unwrap_err();
+
+    assert_eq!(error.action(), DiscAction::Removed);
+    assert_eq!(error.kind(), DiscTransitionErrorKind::InvalidDiscState);
+    assert_eq!(controller.disc_state(), DiscState::Seated);
+}
+
+#[test]
+fn lid_cannot_close_while_disc_is_inserting() {
+    let mut controller = De200Controller::new(initial_volume());
+    open_lid(&mut controller);
+    controller.request_disc_insert().unwrap();
+
+    let error = controller.request_lid_close().unwrap_err();
+
+    assert_eq!(error.action(), LidAction::RequestClose);
+    assert_eq!(error.state(), LidState::Open);
+    assert_eq!(error.disc_state(), Some(DiscState::Inserting));
+    assert_eq!(controller.lid_state(), LidState::Open);
+    assert_eq!(controller.disc_state(), DiscState::Inserting);
+}
+
+#[test]
+fn lid_cannot_close_while_disc_is_removing() {
+    let mut controller = De200Controller::new(initial_volume());
+    seat_disc(&mut controller);
+    controller.request_disc_remove().unwrap();
+
+    let error = controller.request_lid_close().unwrap_err();
+
+    assert_eq!(error.action(), LidAction::RequestClose);
+    assert_eq!(error.state(), LidState::Open);
+    assert_eq!(error.disc_state(), Some(DiscState::Removing));
+    assert_eq!(controller.lid_state(), LidState::Open);
+    assert_eq!(controller.disc_state(), DiscState::Removing);
+}
+
+#[test]
+fn lid_may_close_with_seated_disc() {
+    let mut controller = De200Controller::new(initial_volume());
+    seat_disc(&mut controller);
+
+    controller.request_lid_close().unwrap();
+
+    assert_eq!(controller.lid_state(), LidState::Closing);
+    assert_eq!(controller.disc_state(), DiscState::Seated);
 }
