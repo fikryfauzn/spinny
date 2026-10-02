@@ -1,5 +1,9 @@
 use std::{error::Error, fmt};
 
+use crate::error_translation::{
+    DiscFailureClass, PlaybackFailureClass, translate_disc_failure, translate_playback_failure,
+};
+
 /// Mechanical lid state of the D-E200 appliance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LidState {
@@ -601,6 +605,54 @@ impl De200Controller {
 
     pub const fn error_state(&self) -> Option<ApplianceErrorState> {
         self.error
+    }
+
+    /// Translate and surface one disc-facing backend failure.
+    ///
+    /// This updates only the machine-facing error state. Mechanical state,
+    /// transport state, resume memory, and backend recovery remain separate
+    /// responsibilities.
+    pub fn report_disc_failure(&mut self, failure: DiscFailureClass) -> ApplianceErrorState {
+        let translated = translate_disc_failure(failure);
+        self.error = Some(translated);
+        translated
+    }
+
+    /// Reject the disc currently being inserted and surface the translated
+    /// machine-facing failure in one adapter-safe operation.
+    ///
+    /// Real `.vdisc` validation remains backend-owned. Objective 13 will
+    /// classify concrete `vdisc-core` failures into `DiscFailureClass` before
+    /// calling this method.
+    pub fn notify_disc_validation_failed(
+        &mut self,
+        failure: DiscFailureClass,
+    ) -> Result<ApplianceErrorState, DiscTransitionError> {
+        self.notify_disc_validation_rejected()?;
+        Ok(self.report_disc_failure(failure))
+    }
+
+    /// Translate and surface one playback/backend failure.
+    ///
+    /// Objective 12 deliberately does not force a transport transition here.
+    /// The real backend may already have stopped itself, and Objective 13 owns
+    /// synchronization between backend state and appliance state.
+    pub fn report_playback_failure(
+        &mut self,
+        failure: PlaybackFailureClass,
+    ) -> ApplianceErrorState {
+        let translated = translate_playback_failure(failure);
+        self.error = Some(translated);
+        translated
+    }
+
+    /// Explicitly clear the current machine-facing error state.
+    ///
+    /// Error display duration/recovery policy is not inferred from wall-clock
+    /// time by the controller. The future runtime/backend adapter decides when
+    /// a successfully recovered machine should clear the surfaced error.
+    pub fn clear_error_state(&mut self) {
+        self.error = None;
     }
 
     /// Begin held fast scan while actively playing.
