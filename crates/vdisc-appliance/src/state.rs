@@ -252,6 +252,77 @@ impl fmt::Display for DiscTransitionError {
 
 impl Error for DiscTransitionError {}
 
+/// Explicit transport inputs owned by the D-E200 appliance controller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportAction {
+    Play,
+    Pause,
+    Stop,
+}
+
+/// Why a transport action was rejected by the appliance layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportTransitionErrorKind {
+    LidNotClosed,
+    DiscNotSeated,
+    HoldEnabled,
+    InvalidTransportState,
+}
+
+/// A transport action was not legal for the current appliance state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransportTransitionError {
+    action: TransportAction,
+    transport_state: TransportState,
+    lid_state: LidState,
+    disc_state: DiscState,
+    hold_enabled: bool,
+    kind: TransportTransitionErrorKind,
+}
+
+impl TransportTransitionError {
+    pub const fn action(self) -> TransportAction {
+        self.action
+    }
+
+    pub const fn transport_state(self) -> TransportState {
+        self.transport_state
+    }
+
+    pub const fn lid_state(self) -> LidState {
+        self.lid_state
+    }
+
+    pub const fn disc_state(self) -> DiscState {
+        self.disc_state
+    }
+
+    pub const fn hold_enabled(self) -> bool {
+        self.hold_enabled
+    }
+
+    pub const fn kind(self) -> TransportTransitionErrorKind {
+        self.kind
+    }
+}
+
+impl fmt::Display for TransportTransitionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "transport action {:?} is invalid while transport is {:?}, lid is {:?}, disc is {:?}, hold is {}: {:?}",
+            self.action,
+            self.transport_state,
+            self.lid_state,
+            self.disc_state,
+            self.hold_enabled,
+            self.kind
+        )
+    }
+}
+
+impl Error for TransportTransitionError {}
+
 /// Authoritative state owned by the D-E200 appliance layer.
 ///
 /// Backend-owned facts such as loaded-disc metadata, current track selection,
@@ -326,6 +397,99 @@ impl De200Controller {
 
     pub const fn error_state(&self) -> Option<ApplianceErrorState> {
         self.error
+    }
+
+    /// Start playback from the appliance Stopped state.
+    ///
+    /// Objective 5 owns only appliance transport semantics. If resume memory
+    /// exists, Objective 6 will restore the remembered backend position before
+    /// playback is actually started.
+    pub fn request_play(&mut self) -> Result<(), TransportTransitionError> {
+        if self.lid != LidState::Closed {
+            return Err(self.transport_error(
+                TransportAction::Play,
+                TransportTransitionErrorKind::LidNotClosed,
+            ));
+        }
+
+        if self.disc != DiscState::Seated {
+            return Err(self.transport_error(
+                TransportAction::Play,
+                TransportTransitionErrorKind::DiscNotSeated,
+            ));
+        }
+
+        if self.hold_enabled {
+            return Err(self.transport_error(
+                TransportAction::Play,
+                TransportTransitionErrorKind::HoldEnabled,
+            ));
+        }
+
+        if self.transport != TransportState::Stopped {
+            return Err(self.transport_error(
+                TransportAction::Play,
+                TransportTransitionErrorKind::InvalidTransportState,
+            ));
+        }
+
+        self.transport = TransportState::Playing;
+        Ok(())
+    }
+
+    /// Toggle the dedicated VDISC pause control.
+    ///
+    /// Playing becomes Paused and Paused becomes Playing. Other transport
+    /// states are rejected. HOLD blocks the pause control as specified by the
+    /// Phase 2 appliance contract.
+    pub fn request_pause(&mut self) -> Result<(), TransportTransitionError> {
+        if self.hold_enabled {
+            return Err(self.transport_error(
+                TransportAction::Pause,
+                TransportTransitionErrorKind::HoldEnabled,
+            ));
+        }
+
+        self.transport = match self.transport {
+            TransportState::Playing => TransportState::Paused,
+            TransportState::Paused => TransportState::Playing,
+            _ => {
+                return Err(self.transport_error(
+                    TransportAction::Pause,
+                    TransportTransitionErrorKind::InvalidTransportState,
+                ));
+            }
+        };
+
+        Ok(())
+    }
+
+    /// Stop transport and capture appliance-level resume memory.
+    ///
+    /// Live playback position remains backend-owned, so the caller supplies the
+    /// current position at the adapter boundary. Objective 5 stores that value
+    /// before committing Stopped state. Objective 6 will consume it when PLAY
+    /// resumes from Stopped.
+    pub fn request_stop(
+        &mut self,
+        current_position: PlaybackPosition,
+    ) -> Result<(), TransportTransitionError> {
+        if !matches!(
+            self.transport,
+            TransportState::Playing
+                | TransportState::Paused
+                | TransportState::SeekingForward
+                | TransportState::SeekingBackward
+        ) {
+            return Err(self.transport_error(
+                TransportAction::Stop,
+                TransportTransitionErrorKind::InvalidTransportState,
+            ));
+        }
+
+        self.resume_position = Some(current_position);
+        self.transport = TransportState::Stopped;
+        Ok(())
     }
 
     /// Begin opening the lid.
@@ -515,6 +679,21 @@ impl De200Controller {
             kind,
         }
     }
+
+    fn transport_error(
+        &self,
+        action: TransportAction,
+        kind: TransportTransitionErrorKind,
+    ) -> TransportTransitionError {
+        TransportTransitionError {
+            action,
+            transport_state: self.transport,
+            lid_state: self.lid,
+            disc_state: self.disc,
+            hold_enabled: self.hold_enabled,
+            kind,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -554,6 +733,46 @@ mod tests {
             assert_eq!(error.transport_state(), Some(transport));
             assert_eq!(controller.lid_state(), LidState::Closed);
             assert_eq!(controller.transport_state(), transport);
+        }
+    }
+
+    #[test]
+    fn transport_hold_blocks_play_and_pause_without_mutation() {
+        let mut controller = controller();
+        controller.lid = LidState::Closed;
+        controller.disc = DiscState::Seated;
+        controller.hold_enabled = true;
+
+        let play_error = controller.request_play().unwrap_err();
+        assert_eq!(play_error.kind(), TransportTransitionErrorKind::HoldEnabled);
+        assert_eq!(controller.transport_state(), TransportState::Stopped);
+
+        controller.hold_enabled = false;
+        controller.request_play().unwrap();
+        controller.hold_enabled = true;
+
+        let pause_error = controller.request_pause().unwrap_err();
+        assert_eq!(
+            pause_error.kind(),
+            TransportTransitionErrorKind::HoldEnabled
+        );
+        assert_eq!(controller.transport_state(), TransportState::Playing);
+    }
+
+    #[test]
+    fn transport_stop_accepts_both_seeking_states_and_captures_position() {
+        for transport in [
+            TransportState::SeekingForward,
+            TransportState::SeekingBackward,
+        ] {
+            let mut controller = controller();
+            controller.transport = transport;
+            let position = PlaybackPosition::from_millis(42_500);
+
+            controller.request_stop(position).unwrap();
+
+            assert_eq!(controller.transport_state(), TransportState::Stopped);
+            assert_eq!(controller.resume_position(), Some(position));
         }
     }
 }

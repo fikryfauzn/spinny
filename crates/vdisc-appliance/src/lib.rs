@@ -10,5 +10,6 @@ mod state;
 pub use state::{
     ApplianceErrorState, De200Controller, DiscAction, DiscState, DiscTransitionError,
     DiscTransitionErrorKind, LidAction, LidState, LidTransitionError, PlayMode, PlaybackPosition,
-    TransportState, Volume, VolumeError,
+    TransportAction, TransportState, TransportTransitionError, TransportTransitionErrorKind,
+    Volume, VolumeError,
 };
