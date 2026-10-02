@@ -78,6 +78,7 @@ pub enum TrackCompletionIntent {
 /// Why a play-mode request was rejected by the appliance layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayModeTransitionErrorKind {
+    HoldEnabled,
     InvalidTransportState,
 }
 
@@ -221,6 +222,7 @@ pub struct LidTransitionError {
     state: LidState,
     disc_state: Option<DiscState>,
     transport_state: Option<TransportState>,
+    hold_enabled: bool,
 }
 
 impl LidTransitionError {
@@ -245,11 +247,22 @@ impl LidTransitionError {
     pub const fn transport_state(self) -> Option<TransportState> {
         self.transport_state
     }
+
+    /// Whether HOLD specifically blocked the requested OPEN action.
+    pub const fn hold_enabled(self) -> bool {
+        self.hold_enabled
+    }
 }
 
 impl fmt::Display for LidTransitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(transport_state) = self.transport_state {
+        if self.hold_enabled {
+            write!(
+                f,
+                "lid action {:?} is blocked because HOLD is enabled",
+                self.action
+            )
+        } else if let Some(transport_state) = self.transport_state {
             write!(
                 f,
                 "lid action {:?} is blocked while transport is {:?}",
@@ -422,6 +435,7 @@ pub enum NavigationAction {
 /// Why a navigation request was rejected by the appliance layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavigationTransitionErrorKind {
+    HoldEnabled,
     LidNotClosed,
     DiscNotSeated,
     InvalidTransportState,
@@ -471,6 +485,10 @@ impl fmt::Display for NavigationTransitionError {
 }
 
 impl Error for NavigationTransitionError {}
+
+/// Internal marker returned by the centralized HOLD gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HoldLockError;
 
 /// Authoritative state owned by the D-E200 appliance layer.
 ///
@@ -532,6 +550,28 @@ impl De200Controller {
         self.hold_enabled
     }
 
+    /// Set the physical HOLD switch position.
+    ///
+    /// HOLD itself remains operable while the controls are locked so the user
+    /// can always disable it again. Changing the switch never rewrites
+    /// transport, mechanical, resume, or playback-mode state.
+    pub fn set_hold_enabled(&mut self, enabled: bool) {
+        self.hold_enabled = enabled;
+    }
+
+    /// Central gate for physical controls affected by HOLD.
+    ///
+    /// Individual command families translate this marker into their existing
+    /// typed error surface. Completion events and automatic playback events do
+    /// not pass through this gate.
+    pub(crate) fn ensure_controls_unlocked(&self) -> Result<(), HoldLockError> {
+        if self.hold_enabled {
+            Err(HoldLockError)
+        } else {
+            Ok(())
+        }
+    }
+
     pub const fn avls_enabled(&self) -> bool {
         self.avls_enabled
     }
@@ -556,6 +596,13 @@ impl De200Controller {
         &mut self,
         direction: ScanDirection,
     ) -> Result<(), NavigationTransitionError> {
+        if self.ensure_controls_unlocked().is_err() {
+            return Err(self.navigation_error(
+                NavigationAction::BeginScan(direction),
+                NavigationTransitionErrorKind::HoldEnabled,
+            ));
+        }
+
         self.validate_navigation_mechanics(NavigationAction::BeginScan(direction))?;
 
         if self.transport != TransportState::Playing {
@@ -594,6 +641,10 @@ impl De200Controller {
         &self,
         action: NavigationAction,
     ) -> Result<(), NavigationTransitionError> {
+        if self.ensure_controls_unlocked().is_err() {
+            return Err(self.navigation_error(action, NavigationTransitionErrorKind::HoldEnabled));
+        }
+
         self.validate_navigation_mechanics(action)?;
 
         if !matches!(
@@ -613,6 +664,13 @@ impl De200Controller {
         current: PlaybackPosition,
         target: PlaybackPosition,
     ) -> Result<(), NavigationTransitionError> {
+        if self.ensure_controls_unlocked().is_err() {
+            return Err(self.navigation_error(
+                NavigationAction::ScanSeek,
+                NavigationTransitionErrorKind::HoldEnabled,
+            ));
+        }
+
         self.validate_navigation_mechanics(NavigationAction::ScanSeek)?;
 
         let correct_direction = match self.transport {
@@ -640,6 +698,15 @@ impl De200Controller {
         &self,
         action: PlayModeAction,
     ) -> Result<(), PlayModeTransitionError> {
+        if matches!(action, PlayModeAction::Cycle) && self.ensure_controls_unlocked().is_err() {
+            return Err(PlayModeTransitionError {
+                action,
+                play_mode: self.play_mode,
+                transport_state: self.transport,
+                kind: PlayModeTransitionErrorKind::HoldEnabled,
+            });
+        }
+
         if self.transport != TransportState::Playing {
             return Err(PlayModeTransitionError {
                 action,
@@ -696,6 +763,13 @@ impl De200Controller {
     }
 
     pub(crate) fn validate_play_request(&self) -> Result<(), TransportTransitionError> {
+        if self.ensure_controls_unlocked().is_err() {
+            return Err(self.transport_error(
+                TransportAction::Play,
+                TransportTransitionErrorKind::HoldEnabled,
+            ));
+        }
+
         if self.lid != LidState::Closed {
             return Err(self.transport_error(
                 TransportAction::Play,
@@ -707,13 +781,6 @@ impl De200Controller {
             return Err(self.transport_error(
                 TransportAction::Play,
                 TransportTransitionErrorKind::DiscNotSeated,
-            ));
-        }
-
-        if self.hold_enabled {
-            return Err(self.transport_error(
-                TransportAction::Play,
-                TransportTransitionErrorKind::HoldEnabled,
             ));
         }
 
@@ -738,7 +805,7 @@ impl De200Controller {
     /// states are rejected. HOLD blocks the pause control as specified by the
     /// Phase 2 appliance contract.
     pub fn request_pause(&mut self) -> Result<(), TransportTransitionError> {
-        if self.hold_enabled {
+        if self.ensure_controls_unlocked().is_err() {
             return Err(self.transport_error(
                 TransportAction::Pause,
                 TransportTransitionErrorKind::HoldEnabled,
@@ -769,6 +836,13 @@ impl De200Controller {
         &mut self,
         current_position: PlaybackPosition,
     ) -> Result<(), TransportTransitionError> {
+        if self.ensure_controls_unlocked().is_err() {
+            return Err(self.transport_error(
+                TransportAction::Stop,
+                TransportTransitionErrorKind::HoldEnabled,
+            ));
+        }
+
         if !matches!(
             self.transport,
             TransportState::Playing
@@ -793,12 +867,23 @@ impl De200Controller {
     /// is enforced before any mechanical motion begins so rejected requests do
     /// not partially mutate appliance state.
     pub fn request_lid_open(&mut self) -> Result<(), LidTransitionError> {
+        if self.ensure_controls_unlocked().is_err() {
+            return Err(LidTransitionError {
+                action: LidAction::RequestOpen,
+                state: self.lid,
+                disc_state: None,
+                transport_state: None,
+                hold_enabled: true,
+            });
+        }
+
         if self.lid != LidState::Closed {
             return Err(LidTransitionError {
                 action: LidAction::RequestOpen,
                 state: self.lid,
                 disc_state: None,
                 transport_state: None,
+                hold_enabled: false,
             });
         }
 
@@ -808,6 +893,7 @@ impl De200Controller {
                 state: self.lid,
                 disc_state: None,
                 transport_state: Some(self.transport),
+                hold_enabled: false,
             });
         }
 
@@ -832,6 +918,7 @@ impl De200Controller {
                 state: self.lid,
                 disc_state: None,
                 transport_state: None,
+                hold_enabled: false,
             });
         }
 
@@ -841,6 +928,7 @@ impl De200Controller {
                 state: self.lid,
                 disc_state: Some(self.disc),
                 transport_state: None,
+                hold_enabled: false,
             });
         }
 
@@ -940,6 +1028,7 @@ impl De200Controller {
                 state: self.lid,
                 disc_state: None,
                 transport_state: None,
+                hold_enabled: false,
             });
         }
 

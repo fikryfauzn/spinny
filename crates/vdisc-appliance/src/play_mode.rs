@@ -5,8 +5,8 @@ use crate::state::{
 impl De200Controller {
     /// Handle a short MENU press while playback is active.
     ///
-    /// Objective 8 implements only the documented play-mode cycle. Long MENU
-    /// press remains reserved for the later AVLS objective.
+    /// Objective 9 routes this physical control through the centralized HOLD
+    /// gate. Long MENU press remains reserved for the later AVLS objective.
     pub fn request_cycle_play_mode(&mut self) -> Result<PlayMode, PlayModeTransitionError> {
         self.validate_play_mode_action(PlayModeAction::Cycle)?;
         Ok(self.cycle_play_mode())
