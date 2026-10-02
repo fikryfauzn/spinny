@@ -324,6 +324,76 @@ impl fmt::Display for TransportTransitionError {
 
 impl Error for TransportTransitionError {}
 
+/// Direction of a held D-E200 AMS control during fast scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanDirection {
+    Forward,
+    Backward,
+}
+
+/// Navigation actions exposed by the physical previous/next controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavigationAction {
+    Previous,
+    Next,
+    BeginScan(ScanDirection),
+    ScanSeek,
+    EndScan,
+}
+
+/// Why a navigation request was rejected by the appliance layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavigationTransitionErrorKind {
+    LidNotClosed,
+    DiscNotSeated,
+    InvalidTransportState,
+    WrongScanDirection,
+}
+
+/// A previous/next/scan action was not legal for the current appliance state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NavigationTransitionError {
+    action: NavigationAction,
+    transport_state: TransportState,
+    lid_state: LidState,
+    disc_state: DiscState,
+    kind: NavigationTransitionErrorKind,
+}
+
+impl NavigationTransitionError {
+    pub const fn action(self) -> NavigationAction {
+        self.action
+    }
+
+    pub const fn transport_state(self) -> TransportState {
+        self.transport_state
+    }
+
+    pub const fn lid_state(self) -> LidState {
+        self.lid_state
+    }
+
+    pub const fn disc_state(self) -> DiscState {
+        self.disc_state
+    }
+
+    pub const fn kind(self) -> NavigationTransitionErrorKind {
+        self.kind
+    }
+}
+
+impl fmt::Display for NavigationTransitionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "navigation action {:?} is invalid while transport is {:?}, lid is {:?}, disc is {:?}: {:?}",
+            self.action, self.transport_state, self.lid_state, self.disc_state, self.kind
+        )
+    }
+}
+
+impl Error for NavigationTransitionError {}
+
 /// Authoritative state owned by the D-E200 appliance layer.
 ///
 /// Backend-owned facts such as loaded-disc metadata, current track selection,
@@ -398,6 +468,113 @@ impl De200Controller {
 
     pub const fn error_state(&self) -> Option<ApplianceErrorState> {
         self.error
+    }
+
+    /// Begin held fast scan while actively playing.
+    ///
+    /// The controller owns only the physical hold-state choreography. Actual
+    /// seek targets are executed through the backend-neutral navigation port.
+    pub fn request_scan_begin(
+        &mut self,
+        direction: ScanDirection,
+    ) -> Result<(), NavigationTransitionError> {
+        self.validate_navigation_mechanics(NavigationAction::BeginScan(direction))?;
+
+        if self.transport != TransportState::Playing {
+            return Err(self.navigation_error(
+                NavigationAction::BeginScan(direction),
+                NavigationTransitionErrorKind::InvalidTransportState,
+            ));
+        }
+
+        self.transport = match direction {
+            ScanDirection::Forward => TransportState::SeekingForward,
+            ScanDirection::Backward => TransportState::SeekingBackward,
+        };
+        Ok(())
+    }
+
+    /// End held fast scan and return to the playing state it originated from.
+    pub fn request_scan_end(&mut self) -> Result<(), NavigationTransitionError> {
+        self.validate_navigation_mechanics(NavigationAction::EndScan)?;
+
+        if !matches!(
+            self.transport,
+            TransportState::SeekingForward | TransportState::SeekingBackward
+        ) {
+            return Err(self.navigation_error(
+                NavigationAction::EndScan,
+                NavigationTransitionErrorKind::InvalidTransportState,
+            ));
+        }
+
+        self.transport = TransportState::Playing;
+        Ok(())
+    }
+
+    pub(crate) fn validate_ams_request(
+        &self,
+        action: NavigationAction,
+    ) -> Result<(), NavigationTransitionError> {
+        self.validate_navigation_mechanics(action)?;
+
+        if !matches!(
+            self.transport,
+            TransportState::Stopped | TransportState::Playing | TransportState::Paused
+        ) {
+            return Err(
+                self.navigation_error(action, NavigationTransitionErrorKind::InvalidTransportState)
+            );
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn validate_scan_seek_request(
+        &self,
+        current: PlaybackPosition,
+        target: PlaybackPosition,
+    ) -> Result<(), NavigationTransitionError> {
+        self.validate_navigation_mechanics(NavigationAction::ScanSeek)?;
+
+        let correct_direction = match self.transport {
+            TransportState::SeekingForward => target >= current,
+            TransportState::SeekingBackward => target <= current,
+            _ => {
+                return Err(self.navigation_error(
+                    NavigationAction::ScanSeek,
+                    NavigationTransitionErrorKind::InvalidTransportState,
+                ));
+            }
+        };
+
+        if !correct_direction {
+            return Err(self.navigation_error(
+                NavigationAction::ScanSeek,
+                NavigationTransitionErrorKind::WrongScanDirection,
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn clear_resume_position(&mut self) {
+        self.resume_position = None;
+    }
+
+    fn validate_navigation_mechanics(
+        &self,
+        action: NavigationAction,
+    ) -> Result<(), NavigationTransitionError> {
+        if self.lid != LidState::Closed {
+            return Err(self.navigation_error(action, NavigationTransitionErrorKind::LidNotClosed));
+        }
+
+        if self.disc != DiscState::Seated {
+            return Err(self.navigation_error(action, NavigationTransitionErrorKind::DiscNotSeated));
+        }
+
+        Ok(())
     }
 
     /// Start playback from Stopped when no resume memory is pending.
@@ -711,6 +888,20 @@ impl De200Controller {
             lid_state: self.lid,
             disc_state: self.disc,
             hold_enabled: self.hold_enabled,
+            kind,
+        }
+    }
+
+    fn navigation_error(
+        &self,
+        action: NavigationAction,
+        kind: NavigationTransitionErrorKind,
+    ) -> NavigationTransitionError {
+        NavigationTransitionError {
+            action,
+            transport_state: self.transport,
+            lid_state: self.lid,
+            disc_state: self.disc,
             kind,
         }
     }

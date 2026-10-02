@@ -5,14 +5,17 @@
 //! belong here; disc validation, payload access, decoding, and audio playback
 //! remain backend responsibilities.
 
+mod navigation;
 mod resume;
 mod state;
 
+pub use navigation::{NavigationError, NavigationPlaybackPort};
 pub use resume::{ResumePlayError, ResumePlaybackPort};
 
 pub use state::{
     ApplianceErrorState, De200Controller, DiscAction, DiscState, DiscTransitionError,
-    DiscTransitionErrorKind, LidAction, LidState, LidTransitionError, PlayMode, PlaybackPosition,
-    TransportAction, TransportState, TransportTransitionError, TransportTransitionErrorKind,
-    Volume, VolumeError,
+    DiscTransitionErrorKind, LidAction, LidState, LidTransitionError, NavigationAction,
+    NavigationTransitionError, NavigationTransitionErrorKind, PlayMode, PlaybackPosition,
+    ScanDirection, TransportAction, TransportState, TransportTransitionError,
+    TransportTransitionErrorKind, Volume, VolumeError,
 };
