@@ -9,15 +9,17 @@ mod navigation;
 mod play_mode;
 mod resume;
 mod state;
+mod volume;
 
 pub use navigation::{NavigationError, NavigationPlaybackPort};
 pub use resume::{ResumePlayError, ResumePlaybackPort};
+pub use volume::{AvlsAction, AvlsTransitionError, AvlsTransitionErrorKind};
 
 pub use state::{
-    ApplianceErrorState, De200Controller, DiscAction, DiscState, DiscTransitionError,
-    DiscTransitionErrorKind, LidAction, LidState, LidTransitionError, NavigationAction,
-    NavigationTransitionError, NavigationTransitionErrorKind, PlayMode, PlayModeAction,
-    PlayModeTransitionError, PlayModeTransitionErrorKind, PlaybackPosition, ScanDirection,
-    TrackCompletionIntent, TransportAction, TransportState, TransportTransitionError,
-    TransportTransitionErrorKind, Volume, VolumeError,
+    ApplianceErrorState, D_E200_AVLS_VOLUME_CEILING, De200Controller, DiscAction, DiscState,
+    DiscTransitionError, DiscTransitionErrorKind, LidAction, LidState, LidTransitionError,
+    NavigationAction, NavigationTransitionError, NavigationTransitionErrorKind, PlayMode,
+    PlayModeAction, PlayModeTransitionError, PlayModeTransitionErrorKind, PlaybackPosition,
+    ScanDirection, TrackCompletionIntent, TransportAction, TransportState,
+    TransportTransitionError, TransportTransitionErrorKind, Volume, VolumeError,
 };

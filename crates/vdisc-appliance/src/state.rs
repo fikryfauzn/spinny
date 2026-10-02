@@ -123,8 +123,8 @@ impl Error for PlayModeTransitionError {}
 
 /// Normalized application playback gain.
 ///
-/// Objective 1 establishes only the valid range. It deliberately does not
-/// define button step count, gain curve, persistence, or AVLS clamping policy.
+/// Objective 10 applies AVLS clamping at the appliance-policy layer. Button
+/// step count, gain curve, and persistence remain later runtime concerns.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Volume(f32);
 
@@ -170,6 +170,13 @@ impl fmt::Display for VolumeError {
 }
 
 impl Error for VolumeError {}
+
+/// D-E200 reference-appliance AVLS ceiling used by VDISC.
+///
+/// The Sony behavioral source establishes that AVLS imposes a deterministic
+/// maximum, but does not provide a numeric normalized gain. `0.75` is therefore
+/// an explicit VDISC implementation parameter, not a claimed Sony value.
+pub const D_E200_AVLS_VOLUME_CEILING: Volume = Volume(0.75);
 
 /// Appliance resume memory expressed in the same millisecond unit exposed by
 /// the current backend player API.
@@ -578,6 +585,14 @@ impl De200Controller {
 
     pub const fn volume(&self) -> Volume {
         self.volume
+    }
+
+    pub(crate) fn commit_volume(&mut self, volume: Volume) {
+        self.volume = volume;
+    }
+
+    pub(crate) fn commit_avls_enabled(&mut self, enabled: bool) {
+        self.avls_enabled = enabled;
     }
 
     pub const fn resume_position(&self) -> Option<PlaybackPosition> {

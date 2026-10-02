@@ -6,7 +6,7 @@ impl De200Controller {
     /// Handle a short MENU press while playback is active.
     ///
     /// Objective 9 routes this physical control through the centralized HOLD
-    /// gate. Long MENU press remains reserved for the later AVLS objective.
+    /// gate. Objective 10 handles long MENU separately as the AVLS toggle.
     pub fn request_cycle_play_mode(&mut self) -> Result<PlayMode, PlayModeTransitionError> {
         self.validate_play_mode_action(PlayModeAction::Cycle)?;
         Ok(self.cycle_play_mode())
