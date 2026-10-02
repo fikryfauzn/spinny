@@ -23,6 +23,7 @@ pub enum PlayerAction {
     Next,
     Previous,
     Seek,
+    RestoreStoppedPosition,
     TrackFinished,
 }
 
@@ -196,7 +197,6 @@ impl Player {
         Ok(())
     }
 
-    /// Eject from any loaded state, including while playing or paused.
     pub fn eject(&mut self) -> PlayerResult<()> {
         if matches!(&self.inner, PlayerInner::Empty) {
             return Err(self.invalid(PlayerAction::Eject));
@@ -206,8 +206,6 @@ impl Player {
         Ok(())
     }
 
-    /// Start from stopped or resume from paused. Calling play while already
-    /// playing is rejected rather than treated as an implicit no-op.
     pub fn play(&mut self) -> PlayerResult<()> {
         let state = self.state();
         let Some(loaded) = self.loaded_mut() else {
@@ -265,7 +263,6 @@ impl Player {
         Ok(())
     }
 
-    /// Move to the next track without wrapping. Transport state is preserved.
     pub fn next_track(&mut self) -> PlayerResult<()> {
         let state = self.state();
         let Some(loaded) = self.loaded_mut() else {
@@ -288,7 +285,6 @@ impl Player {
         Ok(())
     }
 
-    /// Move to the previous track without wrapping. Transport state is preserved.
     pub fn previous(&mut self) -> PlayerResult<()> {
         let state = self.state();
         let Some(loaded) = self.loaded_mut() else {
@@ -311,11 +307,6 @@ impl Player {
     }
 
     /// Seek within the selected track while playing or paused.
-    ///
-    /// If VDISC metadata includes a duration, targets beyond it are rejected.
-    /// Duration is optional in V1, so an absent duration does not invent a
-    /// boundary the state layer cannot know; Objective 17's decoder remains
-    /// responsible for resolving the real media position.
     pub fn seek(&mut self, position_ms: u64) -> PlayerResult<()> {
         let state = self.state();
         let Some(loaded) = self.loaded_mut() else {
@@ -335,23 +326,39 @@ impl Player {
             });
         }
 
-        if let Some(duration_ms) = loaded.disc.tracks()[loaded.track_index].duration_ms
-            && position_ms > duration_ms
-        {
-            return Err(PlayerError::SeekOutOfRange {
-                requested_ms: position_ms,
-                duration_ms,
-            });
-        }
-
+        Self::validate_position(loaded, position_ms)?;
         loaded.position_ms = position_ms;
         Ok(())
     }
 
-    /// Backend event for Objective 17: the currently playing track reached EOF.
+    /// Restore a previously captured position while the core transport remains
+    /// stopped.
     ///
-    /// Intermediate tracks advance and keep playing. Finishing the last track
-    /// stops the disc and returns selection to track 1 at position zero.
+    /// This is deliberately distinct from `seek()`: normal interactive seek is
+    /// still valid only while Playing/Paused. The appliance layer uses this
+    /// additive primitive to implement Sony-style STOP -> remembered position ->
+    /// PLAY without changing Campaign 01 STOP semantics.
+    pub fn restore_stopped_position(&mut self, position_ms: u64) -> PlayerResult<()> {
+        let state = self.state();
+        let Some(loaded) = self.loaded_mut() else {
+            return Err(PlayerError::InvalidTransition {
+                action: PlayerAction::RestoreStoppedPosition,
+                state,
+            });
+        };
+
+        if loaded.transport != TransportState::Stopped {
+            return Err(PlayerError::InvalidTransition {
+                action: PlayerAction::RestoreStoppedPosition,
+                state,
+            });
+        }
+
+        Self::validate_position(loaded, position_ms)?;
+        loaded.position_ms = position_ms;
+        Ok(())
+    }
+
     pub fn track_finished(&mut self) -> PlayerResult<()> {
         let state = self.state();
         let Some(loaded) = self.loaded_mut() else {
@@ -375,6 +382,19 @@ impl Player {
             loaded.track_index = 0;
             loaded.position_ms = 0;
             loaded.transport = TransportState::Stopped;
+        }
+
+        Ok(())
+    }
+
+    fn validate_position(loaded: &LoadedPlayer, position_ms: u64) -> PlayerResult<()> {
+        if let Some(duration_ms) = loaded.disc.tracks()[loaded.track_index].duration_ms
+            && position_ms > duration_ms
+        {
+            return Err(PlayerError::SeekOutOfRange {
+                requested_ms: position_ms,
+                duration_ms,
+            });
         }
 
         Ok(())

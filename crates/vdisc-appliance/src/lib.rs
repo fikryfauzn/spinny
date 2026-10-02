@@ -5,6 +5,7 @@
 //! belong here; disc validation, payload access, decoding, and audio playback
 //! remain backend responsibilities.
 
+mod core_integration;
 mod error_translation;
 mod lcd;
 mod navigation;
@@ -13,6 +14,11 @@ mod resume;
 mod state;
 mod volume;
 
+#[cfg(target_os = "linux")]
+pub use core_integration::classify_playback_error;
+pub use core_integration::{
+    CoreIntegrationError, CorePlayerBridge, classify_format_error, classify_player_error,
+};
 pub use error_translation::{
     DiscFailureClass, PlaybackFailureClass, translate_disc_failure, translate_playback_failure,
 };

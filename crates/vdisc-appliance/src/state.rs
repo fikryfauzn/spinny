@@ -872,6 +872,12 @@ impl De200Controller {
     /// states are rejected. HOLD blocks the pause control as specified by the
     /// Phase 2 appliance contract.
     pub fn request_pause(&mut self) -> Result<(), TransportTransitionError> {
+        self.validate_pause_request()?;
+        self.commit_pause_toggle();
+        Ok(())
+    }
+
+    pub(crate) fn validate_pause_request(&self) -> Result<(), TransportTransitionError> {
         if self.ensure_controls_unlocked().is_err() {
             return Err(self.transport_error(
                 TransportAction::Pause,
@@ -879,30 +885,41 @@ impl De200Controller {
             ));
         }
 
+        if !matches!(
+            self.transport,
+            TransportState::Playing | TransportState::Paused
+        ) {
+            return Err(self.transport_error(
+                TransportAction::Pause,
+                TransportTransitionErrorKind::InvalidTransportState,
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn commit_pause_toggle(&mut self) {
         self.transport = match self.transport {
             TransportState::Playing => TransportState::Paused,
             TransportState::Paused => TransportState::Playing,
-            _ => {
-                return Err(self.transport_error(
-                    TransportAction::Pause,
-                    TransportTransitionErrorKind::InvalidTransportState,
-                ));
-            }
+            _ => unreachable!("pause commit requires Playing or Paused"),
         };
-
-        Ok(())
     }
 
     /// Stop transport and capture appliance-level resume memory.
     ///
     /// Live playback position remains backend-owned, so the caller supplies the
-    /// current position at the adapter boundary. Objective 5 stores that value
-    /// before committing Stopped state. Objective 6 will consume it when PLAY
-    /// resumes from Stopped.
+    /// current position at the adapter boundary.
     pub fn request_stop(
         &mut self,
         current_position: PlaybackPosition,
     ) -> Result<(), TransportTransitionError> {
+        self.validate_stop_request()?;
+        self.commit_stopped_with_resume(current_position);
+        Ok(())
+    }
+
+    pub(crate) fn validate_stop_request(&self) -> Result<(), TransportTransitionError> {
         if self.ensure_controls_unlocked().is_err() {
             return Err(self.transport_error(
                 TransportAction::Stop,
@@ -923,9 +940,17 @@ impl De200Controller {
             ));
         }
 
-        self.resume_position = Some(current_position);
-        self.transport = TransportState::Stopped;
         Ok(())
+    }
+
+    pub(crate) fn commit_stopped_with_resume(&mut self, position: PlaybackPosition) {
+        self.resume_position = Some(position);
+        self.transport = TransportState::Stopped;
+    }
+
+    pub(crate) fn commit_backend_stopped_without_resume(&mut self) {
+        self.resume_position = None;
+        self.transport = TransportState::Stopped;
     }
 
     /// Begin opening the lid.
