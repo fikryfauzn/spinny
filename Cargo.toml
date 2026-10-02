@@ -2,6 +2,7 @@
 members = [
     "crates/vdisc-core",
     "crates/vdisc-cli",
+    "crates/vdisc-appliance",
 ]
 resolver = "3"
 
