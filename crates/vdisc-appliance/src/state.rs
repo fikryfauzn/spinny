@@ -42,6 +42,84 @@ pub enum PlayMode {
     RepeatShuffle,
 }
 
+impl PlayMode {
+    pub(crate) const fn next(self) -> Self {
+        match self {
+            Self::Normal => Self::RepeatAll,
+            Self::RepeatAll => Self::Single,
+            Self::Single => Self::RepeatSingle,
+            Self::RepeatSingle => Self::RepeatShuffle,
+            Self::RepeatShuffle => Self::Normal,
+        }
+    }
+}
+
+/// Short-MENU and end-of-track policy actions owned by the appliance layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayModeAction {
+    Cycle,
+    TrackCompleted,
+}
+
+/// Backend-neutral consequence selected when the current track completes.
+///
+/// The controller decides policy only. It does not choose shuffle indexes or
+/// perform backend navigation in Objective 8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackCompletionIntent {
+    Advance,
+    StopAtDiscEnd,
+    StopAfterCurrent,
+    RestartDisc,
+    ReplayCurrent,
+    ChooseShuffleTrack,
+}
+
+/// Why a play-mode request was rejected by the appliance layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayModeTransitionErrorKind {
+    InvalidTransportState,
+}
+
+/// A MENU/play-mode action was not legal for the current appliance state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlayModeTransitionError {
+    action: PlayModeAction,
+    play_mode: PlayMode,
+    transport_state: TransportState,
+    kind: PlayModeTransitionErrorKind,
+}
+
+impl PlayModeTransitionError {
+    pub const fn action(self) -> PlayModeAction {
+        self.action
+    }
+
+    pub const fn play_mode(self) -> PlayMode {
+        self.play_mode
+    }
+
+    pub const fn transport_state(self) -> TransportState {
+        self.transport_state
+    }
+
+    pub const fn kind(self) -> PlayModeTransitionErrorKind {
+        self.kind
+    }
+}
+
+impl fmt::Display for PlayModeTransitionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "play-mode action {:?} is invalid while mode is {:?} and transport is {:?}: {:?}",
+            self.action, self.play_mode, self.transport_state, self.kind
+        )
+    }
+}
+
+impl Error for PlayModeTransitionError {}
+
 /// Normalized application playback gain.
 ///
 /// Objective 1 establishes only the valid range. It deliberately does not
@@ -556,6 +634,27 @@ impl De200Controller {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn validate_play_mode_action(
+        &self,
+        action: PlayModeAction,
+    ) -> Result<(), PlayModeTransitionError> {
+        if self.transport != TransportState::Playing {
+            return Err(PlayModeTransitionError {
+                action,
+                play_mode: self.play_mode,
+                transport_state: self.transport,
+                kind: PlayModeTransitionErrorKind::InvalidTransportState,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn cycle_play_mode(&mut self) -> PlayMode {
+        self.play_mode = self.play_mode.next();
+        self.play_mode
     }
 
     pub(crate) fn clear_resume_position(&mut self) {

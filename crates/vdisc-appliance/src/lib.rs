@@ -6,6 +6,7 @@
 //! remain backend responsibilities.
 
 mod navigation;
+mod play_mode;
 mod resume;
 mod state;
 
@@ -15,7 +16,8 @@ pub use resume::{ResumePlayError, ResumePlaybackPort};
 pub use state::{
     ApplianceErrorState, De200Controller, DiscAction, DiscState, DiscTransitionError,
     DiscTransitionErrorKind, LidAction, LidState, LidTransitionError, NavigationAction,
-    NavigationTransitionError, NavigationTransitionErrorKind, PlayMode, PlaybackPosition,
-    ScanDirection, TransportAction, TransportState, TransportTransitionError,
+    NavigationTransitionError, NavigationTransitionErrorKind, PlayMode, PlayModeAction,
+    PlayModeTransitionError, PlayModeTransitionErrorKind, PlaybackPosition, ScanDirection,
+    TrackCompletionIntent, TransportAction, TransportState, TransportTransitionError,
     TransportTransitionErrorKind, Volume, VolumeError,
 };
