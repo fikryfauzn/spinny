@@ -5,7 +5,10 @@
 //! belong here; disc validation, payload access, decoding, and audio playback
 //! remain backend responsibilities.
 
+mod resume;
 mod state;
+
+pub use resume::{ResumePlayError, ResumePlaybackPort};
 
 pub use state::{
     ApplianceErrorState, De200Controller, DiscAction, DiscState, DiscTransitionError,

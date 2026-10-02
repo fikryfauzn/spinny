@@ -267,6 +267,7 @@ pub enum TransportTransitionErrorKind {
     DiscNotSeated,
     HoldEnabled,
     InvalidTransportState,
+    ResumeExecutionRequired,
 }
 
 /// A transport action was not legal for the current appliance state.
@@ -399,12 +400,26 @@ impl De200Controller {
         self.error
     }
 
-    /// Start playback from the appliance Stopped state.
+    /// Start playback from Stopped when no resume memory is pending.
     ///
-    /// Objective 5 owns only appliance transport semantics. If resume memory
-    /// exists, Objective 6 will restore the remembered backend position before
-    /// playback is actually started.
+    /// Once STOP has captured a resume position, callers must use the
+    /// resume-aware adapter in `crate::resume`. This prevents product code from
+    /// silently bypassing the required seek-before-play sequence.
     pub fn request_play(&mut self) -> Result<(), TransportTransitionError> {
+        self.validate_play_request()?;
+
+        if self.resume_position.is_some() {
+            return Err(self.transport_error(
+                TransportAction::Play,
+                TransportTransitionErrorKind::ResumeExecutionRequired,
+            ));
+        }
+
+        self.commit_playing();
+        Ok(())
+    }
+
+    pub(crate) fn validate_play_request(&self) -> Result<(), TransportTransitionError> {
         if self.lid != LidState::Closed {
             return Err(self.transport_error(
                 TransportAction::Play,
@@ -433,8 +448,12 @@ impl De200Controller {
             ));
         }
 
-        self.transport = TransportState::Playing;
         Ok(())
+    }
+
+    pub(crate) fn commit_playing(&mut self) {
+        debug_assert_eq!(self.transport, TransportState::Stopped);
+        self.transport = TransportState::Playing;
     }
 
     /// Toggle the dedicated VDISC pause control.
@@ -629,6 +648,7 @@ impl De200Controller {
         self.require_disc_state(DiscAction::Removed, DiscState::Removing)?;
 
         self.disc = DiscState::Absent;
+        self.resume_position = None;
         Ok(())
     }
 
