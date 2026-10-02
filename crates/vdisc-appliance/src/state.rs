@@ -142,6 +142,7 @@ pub struct LidTransitionError {
     action: LidAction,
     state: LidState,
     disc_state: Option<DiscState>,
+    transport_state: Option<TransportState>,
 }
 
 impl LidTransitionError {
@@ -159,11 +160,24 @@ impl LidTransitionError {
     pub const fn disc_state(self) -> Option<DiscState> {
         self.disc_state
     }
+
+    /// Transport state when the OPEN interlock specifically blocked opening.
+    ///
+    /// `None` means transport was not the reason for rejection.
+    pub const fn transport_state(self) -> Option<TransportState> {
+        self.transport_state
+    }
 }
 
 impl fmt::Display for LidTransitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(disc_state) = self.disc_state {
+        if let Some(transport_state) = self.transport_state {
+            write!(
+                f,
+                "lid action {:?} is blocked while transport is {:?}",
+                self.action, transport_state
+            )
+        } else if let Some(disc_state) = self.disc_state {
             write!(
                 f,
                 "lid action {:?} is invalid while lid is {:?} and disc is {:?}",
@@ -316,10 +330,30 @@ impl De200Controller {
 
     /// Begin opening the lid.
     ///
-    /// Objective 2 deliberately checks only mechanical lid sequencing. The
-    /// transport OPEN interlock is Objective 4 and is not smuggled in here.
+    /// OPEN is permitted only while transport is fully stopped. The interlock
+    /// is enforced before any mechanical motion begins so rejected requests do
+    /// not partially mutate appliance state.
     pub fn request_lid_open(&mut self) -> Result<(), LidTransitionError> {
-        self.transition_lid(LidAction::RequestOpen, LidState::Closed, LidState::Opening)
+        if self.lid != LidState::Closed {
+            return Err(LidTransitionError {
+                action: LidAction::RequestOpen,
+                state: self.lid,
+                disc_state: None,
+                transport_state: None,
+            });
+        }
+
+        if self.transport != TransportState::Stopped {
+            return Err(LidTransitionError {
+                action: LidAction::RequestOpen,
+                state: self.lid,
+                disc_state: None,
+                transport_state: Some(self.transport),
+            });
+        }
+
+        self.lid = LidState::Opening;
+        Ok(())
     }
 
     /// Acknowledge that the visual/mechanical opening motion completed.
@@ -338,6 +372,7 @@ impl De200Controller {
                 action: LidAction::RequestClose,
                 state: self.lid,
                 disc_state: None,
+                transport_state: None,
             });
         }
 
@@ -346,6 +381,7 @@ impl De200Controller {
                 action: LidAction::RequestClose,
                 state: self.lid,
                 disc_state: Some(self.disc),
+                transport_state: None,
             });
         }
 
@@ -443,6 +479,7 @@ impl De200Controller {
                 action,
                 state: self.lid,
                 disc_state: None,
+                transport_state: None,
             });
         }
 
@@ -476,6 +513,47 @@ impl De200Controller {
             lid_state: self.lid,
             disc_state: self.disc,
             kind,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn controller() -> De200Controller {
+        De200Controller::new(Volume::new(0.5).expect("test volume should be valid"))
+    }
+
+    #[test]
+    fn open_interlock_allows_stopped_transport() {
+        let mut controller = controller();
+
+        controller.request_lid_open().unwrap();
+
+        assert_eq!(controller.lid_state(), LidState::Opening);
+        assert_eq!(controller.transport_state(), TransportState::Stopped);
+    }
+
+    #[test]
+    fn open_interlock_rejects_every_non_stopped_transport_without_mutation() {
+        for transport in [
+            TransportState::Playing,
+            TransportState::Paused,
+            TransportState::SeekingForward,
+            TransportState::SeekingBackward,
+        ] {
+            let mut controller = controller();
+            controller.transport = transport;
+
+            let error = controller.request_lid_open().unwrap_err();
+
+            assert_eq!(error.action(), LidAction::RequestOpen);
+            assert_eq!(error.state(), LidState::Closed);
+            assert_eq!(error.disc_state(), None);
+            assert_eq!(error.transport_state(), Some(transport));
+            assert_eq!(controller.lid_state(), LidState::Closed);
+            assert_eq!(controller.transport_state(), transport);
         }
     }
 }
