@@ -123,6 +123,48 @@ pub enum ApplianceErrorState {
     AudioOutputFailure,
 }
 
+/// Explicit inputs to the mechanical lid handshake.
+///
+/// Request actions begin visual motion. Completion actions are acknowledgements
+/// from the future visual layer; the controller never infers completion from
+/// elapsed wall-clock time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LidAction {
+    RequestOpen,
+    Opened,
+    RequestClose,
+    Closed,
+}
+
+/// A lid action was not legal for the current mechanical lid state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LidTransitionError {
+    action: LidAction,
+    state: LidState,
+}
+
+impl LidTransitionError {
+    pub const fn action(self) -> LidAction {
+        self.action
+    }
+
+    pub const fn state(self) -> LidState {
+        self.state
+    }
+}
+
+impl fmt::Display for LidTransitionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "lid action {:?} is invalid while lid is {:?}",
+            self.action, self.state
+        )
+    }
+}
+
+impl Error for LidTransitionError {}
+
 /// Authoritative state owned by the D-E200 appliance layer.
 ///
 /// Backend-owned facts such as loaded-disc metadata, current track selection,
@@ -195,5 +237,45 @@ impl De200Controller {
 
     pub const fn error_state(&self) -> Option<ApplianceErrorState> {
         self.error
+    }
+
+    /// Begin opening the lid.
+    ///
+    /// Objective 2 deliberately checks only mechanical lid sequencing. The
+    /// transport OPEN interlock is Objective 4 and is not smuggled in here.
+    pub fn request_lid_open(&mut self) -> Result<(), LidTransitionError> {
+        self.transition_lid(LidAction::RequestOpen, LidState::Closed, LidState::Opening)
+    }
+
+    /// Acknowledge that the visual/mechanical opening motion completed.
+    pub fn notify_lid_opened(&mut self) -> Result<(), LidTransitionError> {
+        self.transition_lid(LidAction::Opened, LidState::Opening, LidState::Open)
+    }
+
+    /// Begin closing the lid.
+    pub fn request_lid_close(&mut self) -> Result<(), LidTransitionError> {
+        self.transition_lid(LidAction::RequestClose, LidState::Open, LidState::Closing)
+    }
+
+    /// Acknowledge that the visual/mechanical closing motion completed.
+    pub fn notify_lid_closed(&mut self) -> Result<(), LidTransitionError> {
+        self.transition_lid(LidAction::Closed, LidState::Closing, LidState::Closed)
+    }
+
+    fn transition_lid(
+        &mut self,
+        action: LidAction,
+        expected: LidState,
+        next: LidState,
+    ) -> Result<(), LidTransitionError> {
+        if self.lid != expected {
+            return Err(LidTransitionError {
+                action,
+                state: self.lid,
+            });
+        }
+
+        self.lid = next;
+        Ok(())
     }
 }

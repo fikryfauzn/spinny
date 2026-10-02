@@ -8,6 +8,6 @@
 mod state;
 
 pub use state::{
-    ApplianceErrorState, De200Controller, DiscState, LidState, PlayMode, PlaybackPosition,
-    TransportState, Volume, VolumeError,
+    ApplianceErrorState, De200Controller, DiscState, LidAction, LidState, LidTransitionError,
+    PlayMode, PlaybackPosition, TransportState, Volume, VolumeError,
 };

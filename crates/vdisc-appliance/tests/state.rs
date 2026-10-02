@@ -1,6 +1,6 @@
 use vdisc_appliance::{
-    De200Controller, DiscState, LidState, PlayMode, PlaybackPosition, TransportState, Volume,
-    VolumeError,
+    De200Controller, DiscState, LidAction, LidState, PlayMode, PlaybackPosition, TransportState,
+    Volume, VolumeError,
 };
 
 fn initial_volume() -> Volume {
@@ -84,4 +84,93 @@ fn playback_position_round_trips_milliseconds() {
     let position = PlaybackPosition::from_millis(123_456);
 
     assert_eq!(position.as_millis(), 123_456);
+}
+
+#[test]
+fn closed_lid_can_begin_opening_but_does_not_finish_implicitly() {
+    let mut controller = De200Controller::new(initial_volume());
+
+    controller.request_lid_open().unwrap();
+
+    assert_eq!(controller.lid_state(), LidState::Opening);
+}
+
+#[test]
+fn opening_completion_commits_open_state() {
+    let mut controller = De200Controller::new(initial_volume());
+
+    controller.request_lid_open().unwrap();
+    controller.notify_lid_opened().unwrap();
+
+    assert_eq!(controller.lid_state(), LidState::Open);
+}
+
+#[test]
+fn open_lid_can_begin_closing_but_does_not_finish_implicitly() {
+    let mut controller = De200Controller::new(initial_volume());
+    controller.request_lid_open().unwrap();
+    controller.notify_lid_opened().unwrap();
+
+    controller.request_lid_close().unwrap();
+
+    assert_eq!(controller.lid_state(), LidState::Closing);
+}
+
+#[test]
+fn closing_completion_commits_closed_state() {
+    let mut controller = De200Controller::new(initial_volume());
+    controller.request_lid_open().unwrap();
+    controller.notify_lid_opened().unwrap();
+    controller.request_lid_close().unwrap();
+
+    controller.notify_lid_closed().unwrap();
+
+    assert_eq!(controller.lid_state(), LidState::Closed);
+}
+
+#[test]
+fn out_of_order_open_completion_is_rejected_without_mutation() {
+    let mut controller = De200Controller::new(initial_volume());
+
+    let error = controller.notify_lid_opened().unwrap_err();
+
+    assert_eq!(error.action(), LidAction::Opened);
+    assert_eq!(error.state(), LidState::Closed);
+    assert_eq!(controller.lid_state(), LidState::Closed);
+}
+
+#[test]
+fn duplicate_open_request_is_rejected_without_mutation() {
+    let mut controller = De200Controller::new(initial_volume());
+    controller.request_lid_open().unwrap();
+
+    let error = controller.request_lid_open().unwrap_err();
+
+    assert_eq!(error.action(), LidAction::RequestOpen);
+    assert_eq!(error.state(), LidState::Opening);
+    assert_eq!(controller.lid_state(), LidState::Opening);
+}
+
+#[test]
+fn close_request_requires_fully_open_lid() {
+    let mut controller = De200Controller::new(initial_volume());
+
+    let error = controller.request_lid_close().unwrap_err();
+
+    assert_eq!(error.action(), LidAction::RequestClose);
+    assert_eq!(error.state(), LidState::Closed);
+    assert_eq!(controller.lid_state(), LidState::Closed);
+}
+
+#[test]
+fn out_of_order_close_completion_is_rejected_without_mutation() {
+    let mut controller = De200Controller::new(initial_volume());
+    controller.request_lid_open().unwrap();
+    controller.notify_lid_opened().unwrap();
+
+    let error = controller.notify_lid_closed().unwrap_err();
+
+    assert_eq!(error.action(), LidAction::Closed);
+    assert_eq!(error.state(), LidState::Open);
+    assert_eq!(controller.lid_state(), LidState::Open);
 }
