@@ -11,9 +11,88 @@ Window {
     title: "VDISC Phase 3 Greybox"
     readonly property alias greybox: greyboxScene
     readonly property alias appliance: applianceBridge
+    readonly property var lidPivot: findUniqueNamedNode(greyboxScene, "LID_ROOT")
+    readonly property alias openingAnimation: openingMotion
+    readonly property alias closingAnimation: closingMotion
+
+    function findUniqueNamedNode(root, name) {
+        let match = null
+        let count = 0
+
+        function visit(node) {
+            if (node.objectName === name) {
+                match = node
+                count++
+            }
+            for (const child of node.children)
+                visit(child)
+        }
+
+        if (root !== null)
+            visit(root)
+        return count === 1 ? match : null
+    }
 
     ApplianceBridge {
         id: applianceBridge
+    }
+
+    Shortcut {
+        sequence: "O"
+        autoRepeat: false
+        onActivated: applianceBridge.requestOpen()
+    }
+
+    Shortcut {
+        sequence: "C"
+        autoRepeat: false
+        onActivated: applianceBridge.requestClose()
+    }
+
+    Connections {
+        target: applianceBridge
+
+        function onLidStateChanged() {
+            if (applianceBridge.lidState === "Opening") {
+                if (lidPivot)
+                    openingMotion.start()
+                else
+                    console.error("Asset contract failure: unique LID_ROOT not found")
+            } else if (applianceBridge.lidState === "Closing") {
+                if (lidPivot)
+                    closingMotion.start()
+                else
+                    console.error("Asset contract failure: unique LID_ROOT not found")
+            }
+        }
+    }
+
+    NumberAnimation {
+        id: openingMotion
+        target: lidPivot
+        property: "eulerRotation.x"
+        from: 0
+        to: -105
+        duration: 600
+        easing.type: Easing.InOutQuad
+        onFinished: {
+            if (applianceBridge.lidState === "Opening")
+                applianceBridge.lidOpened()
+        }
+    }
+
+    NumberAnimation {
+        id: closingMotion
+        target: lidPivot
+        property: "eulerRotation.x"
+        from: -105
+        to: 0
+        duration: 600
+        easing.type: Easing.InOutQuad
+        onFinished: {
+            if (applianceBridge.lidState === "Closing")
+                applianceBridge.lidClosed()
+        }
     }
 
     View3D {
