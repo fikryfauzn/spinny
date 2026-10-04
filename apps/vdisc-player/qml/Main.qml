@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import QtQuick3D
+import VdiscAppliance 1.0
 import "../generated/phase03-greybox" as Greybox
 
 Window {
@@ -9,6 +10,11 @@ Window {
     visible: true
     title: "VDISC Phase 3 Greybox"
     readonly property alias greybox: greyboxScene
+    readonly property alias appliance: applianceBridge
+
+    ApplianceBridge {
+        id: applianceBridge
+    }
 
     View3D {
         anchors.fill: parent

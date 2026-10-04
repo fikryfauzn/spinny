@@ -3,6 +3,7 @@ members = [
     "crates/vdisc-core",
     "crates/vdisc-cli",
     "crates/vdisc-appliance",
+    "crates/vdisc-qml-bridge",
 ]
 resolver = "3"
 
