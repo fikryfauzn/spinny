@@ -14,6 +14,8 @@ Window {
     readonly property var lidPivot: findUniqueNamedNode(greyboxScene, "LID_ROOT")
     readonly property alias discDeck: discDeck
     readonly property alias controls: controlSurface
+    readonly property alias spin: discSpin
+    readonly property alias inspection: discInspection
     readonly property alias openingAnimation: openingMotion
     readonly property alias closingAnimation: closingMotion
 
@@ -147,5 +149,34 @@ Window {
         discRoot: findUniqueNamedNode(greyboxScene, "DISC_ROOT")
         discModel: findUniqueNamedNode(greyboxScene, "DISC_TEST")
         spindleModel: findUniqueNamedNode(greyboxScene, "SPINDLE_TEST")
+    }
+
+    DiscSpin {
+        id: discSpin
+        appliance: applianceBridge
+        sceneRoot: greyboxScene
+    }
+
+    DiscInspection {
+        id: discInspection
+        anchors.fill: sceneView
+        sceneRoot: greyboxScene
+        discModel: discSpin.discModel
+        windowActive: active
+        filePickerVisible: discDeck.filePickerVisible
+    }
+
+    Text {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 64
+        anchors.rightMargin: 16
+        width: 260
+        color: "#ffc8a0"
+        wrapMode: Text.Wrap
+        text: [discSpin.assetError, discInspection.assetError].filter(function(error) {
+            return error.length > 0
+        }).join("\n")
+        visible: text.length > 0
     }
 }

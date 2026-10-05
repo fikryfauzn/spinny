@@ -81,6 +81,7 @@ TestCase {
     }
 
     function test_asset_loss_during_settle(data) {
+        failOnWarning(/Binding loop detected/)
         const app = appComponent.createObject(null)
         verify(app !== null)
         try {
