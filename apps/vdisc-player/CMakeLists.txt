@@ -48,6 +48,9 @@ qt_add_qml_module(vdisc-player
         qml/DiscPlacement.js
         qml/ButtonTravel.qml
         qml/ControlSurface.qml
+        qml/DiscSpin.qml
+        qml/DiscSpinPolicy.js
+        qml/DiscInspection.qml
         generated/phase03-greybox/Phase03_greybox.qml
     RESOURCES ${greybox_meshes}
 )

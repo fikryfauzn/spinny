@@ -12,6 +12,7 @@ Item {
     required property var spindleModel
     readonly property alias insertionAnimation: insertMotion
     readonly property alias removalAnimation: removeMotion
+    readonly property alias filePickerVisible: discFileDialog.visible
     property string selectedPath: ""
     property bool dragging: false
     signal filePickerOpened()
