@@ -12,6 +12,7 @@ Window {
     readonly property alias greybox: greyboxScene
     readonly property alias appliance: applianceBridge
     readonly property var lidPivot: findUniqueNamedNode(greyboxScene, "LID_ROOT")
+    readonly property alias discDeck: discDeck
     readonly property alias openingAnimation: openingMotion
     readonly property alias closingAnimation: closingMotion
 
@@ -96,6 +97,7 @@ Window {
     }
 
     View3D {
+        id: sceneView
         anchors.fill: parent
 
         environment: SceneEnvironment {
@@ -120,5 +122,15 @@ Window {
         Greybox.Phase03_greybox {
             id: greyboxScene
         }
+    }
+
+    DiscDeck {
+        id: discDeck
+        anchors.fill: sceneView
+        view3d: sceneView
+        appliance: applianceBridge
+        discRoot: findUniqueNamedNode(greyboxScene, "DISC_ROOT")
+        discModel: findUniqueNamedNode(greyboxScene, "DISC_TEST")
+        spindleModel: findUniqueNamedNode(greyboxScene, "SPINDLE_TEST")
     }
 }
