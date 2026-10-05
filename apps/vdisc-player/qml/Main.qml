@@ -13,6 +13,7 @@ Window {
     readonly property alias appliance: applianceBridge
     readonly property var lidPivot: findUniqueNamedNode(greyboxScene, "LID_ROOT")
     readonly property alias discDeck: discDeck
+    readonly property alias controls: controlSurface
     readonly property alias openingAnimation: openingMotion
     readonly property alias closingAnimation: closingMotion
 
@@ -122,6 +123,20 @@ Window {
         Greybox.Phase03_greybox {
             id: greyboxScene
         }
+    }
+
+    ControlSurface {
+        id: controlSurface
+        anchors.fill: sceneView
+        view3d: sceneView
+        appliance: applianceBridge
+        sceneRoot: greyboxScene
+        windowActive: active
+    }
+
+    Connections {
+        target: discDeck
+        function onFilePickerOpened() { controlSurface.cancelPress() }
     }
 
     DiscDeck {

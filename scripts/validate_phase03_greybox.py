@@ -1,6 +1,6 @@
 """Validate the Phase 3 Blender source before export.
 
-Run: blender --background assets/blender/phase03-greybox-02.blend \
+Run: blender --background assets/blender/phase03-controls-proof.blend \
     --python-exit-code 1 --python scripts/validate_phase03_greybox.py
 """
 
@@ -25,6 +25,8 @@ PARENTS = {
     "BTN_PAUSE_TEST": "PLAYER_ROOT",
     "BTN_STOP_TEST": "PLAYER_ROOT",
     "BTN_OPEN_TEST": "PLAYER_ROOT",
+    "BTN_PREVIOUS_TEST": "PLAYER_ROOT",
+    "BTN_NEXT_TEST": "PLAYER_ROOT",
     "LCD_TEST": "PLAYER_ROOT",
 }
 EMPTY_NAMES = {"PLAYER_ROOT", "LID_ROOT", "DISC_ROOT"}
@@ -40,6 +42,8 @@ LOCATIONS = {
     "BTN_PAUSE_TEST": (-0.033, -0.069, 0.0235),
     "BTN_STOP_TEST": (-0.018, -0.069, 0.0235),
     "BTN_OPEN_TEST": (-0.003, -0.069, 0.0235),
+    "BTN_PREVIOUS_TEST": (-0.033, -0.073, 0.013),
+    "BTN_NEXT_TEST": (-0.015, -0.073, 0.013),
     "LCD_TEST": (0.033, -0.069, 0.0221),
 }
 DIMENSIONS = {
@@ -51,6 +55,8 @@ DIMENSIONS = {
     "BTN_PAUSE_TEST": (0.010, 0.006, 0.003),
     "BTN_STOP_TEST": (0.010, 0.006, 0.003),
     "BTN_OPEN_TEST": (0.010, 0.006, 0.003),
+    "BTN_PREVIOUS_TEST": (0.012, 0.003, 0.006),
+    "BTN_NEXT_TEST": (0.012, 0.003, 0.006),
     "LCD_TEST": (0.045, 0.006, 0.0002),
 }
 TOLERANCE = 1e-5
@@ -145,7 +151,7 @@ def validate_scene():
     if not errors:
         mesh_objects = [obj for obj in scene.objects if obj.type == "MESH"]
         minimum, maximum = bounds(mesh_objects)
-        if not close(minimum, (-0.0655, -0.074, 0)) or not close(
+        if not close(minimum, (-0.0655, -0.0745, 0)) or not close(
             maximum, (0.0655, 0.074, 0.028)
         ):
             errors.append(f"Wrong closed envelope: {minimum} to {maximum}")

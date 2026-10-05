@@ -60,6 +60,15 @@ Node {
             ]
         }
         Model {
+            id: btn_NEXT_TEST
+            objectName: "BTN_NEXT_TEST"
+            position: Qt.vector3d(-0.015, 0.013, 0.073)
+            source: "meshes/btn_NEXT_TEST_MESH_mesh.mesh"
+            materials: [
+                grey_BUTTON_material
+            ]
+        }
+        Model {
             id: btn_OPEN_TEST
             objectName: "BTN_OPEN_TEST"
             position: Qt.vector3d(-0.003, 0.0235, 0.069)
@@ -82,6 +91,15 @@ Node {
             objectName: "BTN_PLAY_TEST"
             position: Qt.vector3d(-0.048, 0.0235, 0.069)
             source: "meshes/btn_PLAY_TEST_MESH_mesh.mesh"
+            materials: [
+                grey_BUTTON_material
+            ]
+        }
+        Model {
+            id: btn_PREVIOUS_TEST
+            objectName: "BTN_PREVIOUS_TEST"
+            position: Qt.vector3d(-0.033, 0.013, 0.073)
+            source: "meshes/btn_PREVIOUS_TEST_MESH_mesh.mesh"
             materials: [
                 grey_BUTTON_material
             ]

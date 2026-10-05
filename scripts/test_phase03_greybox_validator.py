@@ -22,6 +22,26 @@ def must_fail(label, fragment):
 
 
 assert not validate_scene()[0]
+assert len(bpy.context.scene.objects) == 14, "Physical PREVIOUS/NEXT nodes are required"
+
+for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"):
+    obj = bpy.data.objects[name]
+    obj.name = "WRONG_BUTTON"
+    must_fail("missing control", "Missing objects")
+    obj.name = name
+    parent = obj.parent
+    obj.parent = bpy.data.objects["LID_ROOT"]
+    must_fail("wrong control parent", "parent")
+    obj.parent = parent
+    obj.scale.x = 2
+    must_fail("scaled control", "unapplied scale")
+    obj.scale.x = 1
+    obj.location.x += 0.002
+    must_fail("shifted control", "location")
+    obj.location.x -= 0.002
+    obj.data.vertices[0].co.x += 0.02
+    must_fail("wrong control dimensions", "dimensions")
+    obj.data.vertices[0].co.x -= 0.02
 
 disc = bpy.data.objects["DISC_ROOT"]
 disc.delta_location.x = 0.002

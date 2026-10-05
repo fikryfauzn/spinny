@@ -12,6 +12,30 @@ import validate_phase03_glb as validator  # noqa: E402
 path = Path("assets/runtime/phase03-greybox.glb")
 document = validator.read_glb_json(path)
 assert validator.validate(path)["status"] == "ok"
+assert validator.validate(path)["nodes"] == 14, "Physical PREVIOUS/NEXT nodes are required"
+
+for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"):
+    for kind in ("missing", "duplicate", "position", "parent"):
+        mutant = copy.deepcopy(document)
+        index = next(i for i, node in enumerate(mutant["nodes"]) if node.get("name") == name)
+        if kind == "missing":
+            mutant["nodes"][index]["name"] = "WRONG_BUTTON"
+        elif kind == "duplicate":
+            mutant["nodes"].append(copy.deepcopy(mutant["nodes"][index]))
+        elif kind == "position":
+            mutant["nodes"][index]["translation"] = [0, 0, 0]
+        else:
+            for node in mutant["nodes"]:
+                if index in node.get("children", []):
+                    node["children"].remove(index)
+            next(node for node in mutant["nodes"] if node.get("name") == "LID_ROOT").setdefault("children", []).append(index)
+        with patch.object(validator, "read_glb_json", return_value=mutant):
+            try:
+                validator.validate(path)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"Invalid {name} {kind} passed")
 
 mutant = copy.deepcopy(document)
 root = next(node for node in mutant["nodes"] if node.get("name") == "PLAYER_ROOT")

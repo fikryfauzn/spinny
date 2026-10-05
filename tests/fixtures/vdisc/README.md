@@ -1,5 +1,9 @@
 # VDISC contract fixtures
 
+`transport-two-track.vdisc` is a tiny two-track silent WAV fixture for physical
+transport integration tests. Generate it independently (without rewriting the
+contract fixtures) with `rtk cargo run -p vdisc-core --example generate_transport_fixture`.
+
 Generated from synthetic 10 ms, mono, 48 kHz, signed 16-bit PCM silence.
 
 | File | Expected result |

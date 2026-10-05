@@ -34,7 +34,8 @@ TestCase {
             collect(greybox, names)
             const expected = ["PLAYER_ROOT", "BODY_TEST", "LID_ROOT", "LID_TEST",
                               "DISC_ROOT", "DISC_TEST", "SPINDLE_TEST", "BTN_PLAY_TEST",
-                              "BTN_PAUSE_TEST", "BTN_STOP_TEST", "BTN_OPEN_TEST", "LCD_TEST"]
+                              "BTN_PAUSE_TEST", "BTN_STOP_TEST", "BTN_OPEN_TEST", "LCD_TEST",
+                              "BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"]
             compare(Object.keys(names).sort().join(","), expected.sort().join(","))
             compare(names.LID_ROOT.parent, names.PLAYER_ROOT)
             compare(names.LID_TEST.parent, names.LID_ROOT)
@@ -43,6 +44,14 @@ TestCase {
             fuzzyCompare(names.LID_ROOT.scenePosition.y, 2.8, 0.01)
             fuzzyCompare(names.LID_ROOT.scenePosition.z, -7.4, 0.01)
             fuzzyCompare(names.DISC_ROOT.scenePosition.y, 1.4, 0.01)
+            compare(names.BTN_PREVIOUS_TEST.parent, names.PLAYER_ROOT)
+            compare(names.BTN_NEXT_TEST.parent, names.PLAYER_ROOT)
+            fuzzyCompare(names.BTN_PREVIOUS_TEST.position.x, -0.033, 0.000001)
+            fuzzyCompare(names.BTN_NEXT_TEST.position.x, -0.015, 0.000001)
+            for (const name of ["BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"]) {
+                fuzzyCompare(names[name].position.y, 0.013, 0.000001)
+                fuzzyCompare(names[name].position.z, 0.073, 0.000001)
+            }
         } finally {
             app.destroy()
         }

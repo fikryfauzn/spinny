@@ -1,6 +1,6 @@
 """Validate and export the Phase 3 greybox as glTF 2.0 GLB.
 
-Run: blender --background assets/blender/phase03-greybox-02.blend \
+Run: blender --background assets/blender/phase03-controls-proof.blend \
     --python-exit-code 1 --python scripts/export_phase03_greybox.py
 """
 
