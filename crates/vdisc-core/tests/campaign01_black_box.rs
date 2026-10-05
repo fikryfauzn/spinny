@@ -194,9 +194,20 @@ struct AuditBackend {
 #[derive(Debug)]
 struct AuditSession {
     finished: bool,
+    gain: Mutex<f32>,
 }
 
 impl PlaybackSession for AuditSession {
+    fn set_gain(&self, gain: f32) -> PlaybackResult<()> {
+        if !gain.is_finite() || !(0.0..=1.0).contains(&gain) {
+            return Err(vdisc_core::PlaybackError::BackendInvariant(
+                "invalid audit gain",
+            ));
+        }
+        *self.gain.lock().unwrap() = gain;
+        Ok(())
+    }
+
     fn play(&self) -> PlaybackResult<()> {
         Ok(())
     }
@@ -239,7 +250,10 @@ impl PlaybackBackend for AuditBackend {
 
         self.opened.lock().unwrap().push(track_index);
 
-        Ok(AuditSession { finished: false })
+        Ok(AuditSession {
+            finished: false,
+            gain: Mutex::new(1.0),
+        })
     }
 }
 

@@ -27,7 +27,7 @@ pub struct ApplianceSnapshot {
     pub lcd_message: String,
 }
 
-impl ApplianceRuntime {
+impl<B: vdisc_core::PlaybackBackend> ApplianceRuntime<B> {
     pub fn snapshot(&self) -> ApplianceSnapshot {
         let controller = &self.controller;
         let lcd = controller.lcd_snapshot(self.backend.lcd_facts(), None);

@@ -1618,6 +1618,7 @@ dependencies = [
 name = "vdisc-appliance"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "vdisc-core",
 ]
 
@@ -1655,6 +1656,7 @@ dependencies = [
  "cxx-qt-build",
  "cxx-qt-lib",
  "vdisc-appliance",
+ "vdisc-core",
 ]
 
 [[package]]

@@ -8,6 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Quick3D Qml QuickTest)
 find_package(ALSA REQUIRED)
 qt_standard_project_setup(REQUIRES 6.8)
+option(VDISC_QML_TEST_AUDIO "Build explicit deterministic QuickTest audio support" OFF)
+set(VDISC_BRIDGE_FEATURES qml)
+if(VDISC_QML_TEST_AUDIO)
+    list(APPEND VDISC_BRIDGE_FEATURES qml-test-support)
+endif()
 
 find_package(CxxQt QUIET)
 if(NOT CxxQt_FOUND)
@@ -23,7 +28,7 @@ endif()
 cxx_qt_import_crate(
     MANIFEST_PATH ../../crates/vdisc-qml-bridge/Cargo.toml
     CRATES vdisc_qml_bridge
-    FEATURES qml
+    FEATURES ${VDISC_BRIDGE_FEATURES}
     LOCKED
     QT_MODULES Qt::Core Qt::Gui Qt::Qml
 )
@@ -44,6 +49,8 @@ qt_add_qml_module(vdisc-player
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/AudioRuntime.qml
+        qml/AudioTestControls.qml
         qml/DiscDeck.qml
         qml/DiscPlacement.js
         qml/ButtonTravel.qml
@@ -57,6 +64,7 @@ qt_add_qml_module(vdisc-player
 
 target_link_libraries(vdisc-player PRIVATE Qt6::Quick Qt6::Quick3D vdisc_appliance_qml_module ALSA::ALSA)
 
+if(VDISC_QML_TEST_AUDIO)
 qt_add_executable(vdisc-appliance-tests tests/quick_test_main.cpp)
 target_compile_definitions(vdisc-appliance-tests PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
@@ -64,6 +72,7 @@ target_compile_definitions(vdisc-appliance-tests PRIVATE
 target_link_libraries(vdisc-appliance-tests PRIVATE
     Qt6::QuickTest Qt6::Qml vdisc_appliance_qml_module ALSA::ALSA
 )
+endif()
 
 # The core reader launches these sandboxed validators beside the executable.
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
@@ -85,4 +94,6 @@ add_custom_target(vdisc-workers
     VERBATIM
 )
 add_dependencies(vdisc-player vdisc-workers)
-add_dependencies(vdisc-appliance-tests vdisc-workers)
+if(VDISC_QML_TEST_AUDIO)
+    add_dependencies(vdisc-appliance-tests vdisc-workers)
+endif()
