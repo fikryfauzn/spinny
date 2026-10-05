@@ -3,6 +3,7 @@ use core::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 
+use crate::audio_backend::RuntimeBackend;
 use crate::{ApplianceRuntime, ApplianceSnapshot, Command};
 use vdisc_appliance::ScanDirection;
 
@@ -42,6 +43,10 @@ pub mod ffi {
         #[qproperty(QString, lcd_message, READ, NOTIFY, cxx_name = "lcdMessage")]
         #[qproperty(QString, last_rejection, READ, NOTIFY, cxx_name = "lastRejection")]
         type ApplianceBridge = super::ApplianceBridgeRust;
+
+        #[qinvokable]
+        #[cxx_name = "pollBackend"]
+        fn poll_backend(self: Pin<&mut Self>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "requestOpen"]
@@ -130,7 +135,7 @@ pub mod ffi {
 }
 
 pub struct ApplianceBridgeRust {
-    runtime: ApplianceRuntime,
+    runtime: ApplianceRuntime<RuntimeBackend>,
     lid_state: QString,
     disc_state: QString,
     transport_state: QString,
@@ -154,7 +159,7 @@ pub struct ApplianceBridgeRust {
 
 impl Default for ApplianceBridgeRust {
     fn default() -> Self {
-        let runtime = ApplianceRuntime::new();
+        let runtime = ApplianceRuntime::with_backend(RuntimeBackend::default());
         let snapshot = runtime.snapshot();
         Self {
             runtime,
@@ -192,6 +197,21 @@ macro_rules! update_projection {
 }
 
 impl ffi::ApplianceBridge {
+    pub fn poll_backend(mut self: Pin<&mut Self>) -> bool {
+        let result = self.as_mut().rust_mut().runtime.poll_backend();
+        let snapshot = self.as_ref().rust().runtime.snapshot();
+        self.as_mut().refresh(snapshot);
+        if let Err(error) = &result {
+            update_projection!(
+                self,
+                last_rejection,
+                QString::from(error.as_str()),
+                last_rejection_changed
+            );
+        }
+        result.is_ok()
+    }
+
     pub fn request_open(self: Pin<&mut Self>) -> bool {
         self.dispatch(Command::Open)
     }

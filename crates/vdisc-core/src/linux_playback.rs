@@ -13,7 +13,7 @@ use std::{
     path::Path,
     sync::{
         Arc, Condvar, Mutex, TryLockError,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread::{self, JoinHandle},
@@ -117,6 +117,7 @@ pub enum PlaybackBackendEvent {
 pub trait PlaybackSession: Send {
     fn play(&self) -> PlaybackResult<()>;
     fn pause(&self) -> PlaybackResult<()>;
+    fn set_gain(&self, gain: f32) -> PlaybackResult<()>;
     fn position_ms(&self) -> u64;
     fn poll_event(&mut self) -> Option<PlaybackBackendEvent>;
 }
@@ -575,7 +576,7 @@ fn decode_audio<R, Emit>(
 ) -> std::result::Result<(), String>
 where
     R: Read + Seek + Send + Sync + 'static,
-    Emit: FnMut(&[f32]) -> std::result::Result<(), String>,
+    Emit: FnMut(&[f32]) -> std::result::Result<PcmWrite, String>,
 {
     let (mut format, mut decoder, track, actual_info) = open_decoder(reader, len)?;
 
@@ -655,8 +656,8 @@ where
             &mut remixed,
         )?;
 
-        if !remixed.is_empty() {
-            emit(&remixed)?;
+        if !remixed.is_empty() && emit(&remixed)? == PcmWrite::Stopped {
+            return Ok(());
         }
     }
 
@@ -719,6 +720,13 @@ struct SharedPcm {
     stop: AtomicBool,
     completion_sent: AtomicBool,
     played_frames: AtomicU64,
+    gain_bits: AtomicU32,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PcmWrite {
+    Continue,
+    Stopped,
 }
 
 impl SharedPcm {
@@ -734,15 +742,34 @@ impl SharedPcm {
             stop: AtomicBool::new(false),
             completion_sent: AtomicBool::new(false),
             played_frames: AtomicU64::new(0),
+            gain_bits: AtomicU32::new(1.0f32.to_bits()),
         }
     }
 
-    fn push(&self, samples: &[f32]) -> std::result::Result<(), String> {
+    fn set_gain(&self, gain: f32) -> PlaybackResult<()> {
+        if !gain.is_finite() || !(0.0..=1.0).contains(&gain) {
+            return Err(PlaybackError::BackendInvariant(
+                "gain must be finite and within 0–1",
+            ));
+        }
+        self.gain_bits.store(gain.to_bits(), Ordering::Release);
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        // Serialize cancellation with the producer's check-and-wait protocol.
+        // Without this lock, a notify between its stop check and wait can be lost.
+        let _state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        self.stop.store(true, Ordering::Release);
+        self.space_available.notify_all();
+    }
+
+    fn push(&self, samples: &[f32]) -> std::result::Result<PcmWrite, String> {
         let mut offset = 0;
 
         while offset < samples.len() {
             if self.stop.load(Ordering::Acquire) {
-                return Ok(());
+                return Ok(PcmWrite::Stopped);
             }
 
             let mut state = self
@@ -758,7 +785,7 @@ impl SharedPcm {
             }
 
             if self.stop.load(Ordering::Acquire) {
-                return Ok(());
+                return Ok(PcmWrite::Stopped);
             }
 
             let free = state.capacity.saturating_sub(state.samples.len());
@@ -767,10 +794,20 @@ impl SharedPcm {
             offset += count;
         }
 
-        Ok(())
+        Ok(PcmWrite::Continue)
     }
 
-    fn finish(&self, error: Option<String>) {
+    fn finish(&self, error: Option<String>, events: &Sender<PlaybackBackendEvent>) {
+        if self.stop.load(Ordering::Acquire) {
+            return;
+        }
+        // An observed decoder failure must reach paused sessions, where no audio
+        // callback can drain PCM. Suppress callback completion before publishing.
+        if let Some(message) = &error
+            && !self.completion_sent.swap(true, Ordering::AcqRel)
+        {
+            let _ = events.send(PlaybackBackendEvent::DecodeError(message.clone()));
+        }
         if let Ok(mut state) = self.state.lock() {
             state.producer_done = true;
             state.decode_error = error;
@@ -791,8 +828,7 @@ pub struct CpalSession {
 impl Drop for CpalSession {
     fn drop(&mut self) {
         let _ = self.stream.pause();
-        self.shared.stop.store(true, Ordering::Release);
-        self.shared.space_available.notify_all();
+        self.shared.cancel();
 
         if let Some(thread) = self.decoder_thread.take() {
             let _ = thread.join();
@@ -801,6 +837,10 @@ impl Drop for CpalSession {
 }
 
 impl PlaybackSession for CpalSession {
+    fn set_gain(&self, gain: f32) -> PlaybackResult<()> {
+        self.shared.set_gain(gain)
+    }
+
     fn play(&self) -> PlaybackResult<()> {
         self.stream
             .play()
@@ -908,7 +948,7 @@ impl PlaybackBackend for CpalBackend {
                     |samples| decode_shared.push(samples),
                 );
 
-                decode_shared.finish(result.err());
+                decode_shared.finish(result.err(), &event_tx);
             })
             .map_err(|error| PlaybackError::Decode(error.to_string()))?;
 
@@ -1014,6 +1054,7 @@ fn fill_output<T>(
 {
     let mut written = 0usize;
     let mut completion = None;
+    let gain = f32::from_bits(shared.gain_bits.load(Ordering::Acquire));
 
     match shared.state.try_lock() {
         Ok(mut state) => {
@@ -1021,7 +1062,7 @@ fn fill_output<T>(
                 let Some(sample) = state.samples.pop_front() else {
                     break;
                 };
-                output[written] = T::from_sample(sample);
+                output[written] = T::from_sample(sample * gain);
                 written += 1;
             }
 
@@ -1066,6 +1107,130 @@ mod tests {
     use std::fs::File;
 
     #[test]
+    fn cancelled_pcm_producer_stops_real_decoder_after_first_emit() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/audio/valid.wav");
+        let file = File::open(&path).unwrap();
+        let len = file.metadata().unwrap().len();
+        let (_, _, _, info) = open_decoder(file, Some(len)).unwrap();
+        let file = File::open(&path).unwrap();
+        let shared = SharedPcm::new(1);
+        let mut emits = 0;
+        decode_audio(file, Some(len), 0, info, 2, |samples| {
+            emits += 1;
+            shared.stop.store(true, Ordering::Release);
+            shared.push(samples)
+        })
+        .unwrap();
+        assert_eq!(
+            emits, 1,
+            "cancel must end decoding, not discard every remaining packet"
+        );
+    }
+
+    #[test]
+    fn cancelled_blocked_producer_wakes_and_exits() {
+        let shared = Arc::new(SharedPcm::new(1));
+        shared.push(&[0.5]).unwrap();
+        let producer = shared.clone();
+        let (done_tx, done_rx) = mpsc::channel();
+        let thread = thread::spawn(move || {
+            done_tx.send(producer.push(&[1.0])).unwrap();
+        });
+        shared.cancel();
+        assert!(matches!(
+            done_rx
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .unwrap(),
+            PcmWrite::Stopped
+        ));
+        thread.join().unwrap();
+    }
+
+    #[test]
+    fn decoder_failure_publishes_once_without_any_output_callback() {
+        let shared = SharedPcm::new(4);
+        shared.push(&[0.5, -0.5]).unwrap();
+        let (sender, receiver) = mpsc::channel();
+        shared.finish(Some("injected decoder failure".into()), &sender);
+        assert!(
+            matches!(receiver.try_recv().unwrap(), PlaybackBackendEvent::DecodeError(message) if message == "injected decoder failure")
+        );
+        assert_eq!(shared.played_frames.load(Ordering::Acquire), 0);
+        let mut output = [0.0f32; 4];
+        fill_output(&mut output, &shared, &sender, 2);
+        assert!(
+            receiver.try_recv().is_err(),
+            "callback must not duplicate decode failure or emit EOF"
+        );
+    }
+
+    #[test]
+    fn successful_decode_keeps_eof_bound_to_played_pcm() {
+        let shared = SharedPcm::new(4);
+        shared.push(&[0.5, -0.5]).unwrap();
+        let (sender, receiver) = mpsc::channel();
+        shared.finish(None, &sender);
+        assert!(
+            receiver.try_recv().is_err(),
+            "queued PCM must play before EOF"
+        );
+        fill_output(&mut [0.0f32; 1], &shared, &sender, 1);
+        assert!(receiver.try_recv().is_err());
+        fill_output(&mut [0.0f32; 1], &shared, &sender, 1);
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            PlaybackBackendEvent::TrackFinished
+        ));
+        fill_output(&mut [0.0f32; 1], &shared, &sender, 1);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn output_gain_scales_queued_pcm_once_and_keeps_frame_clock() {
+        for (gain, expected) in [
+            (1.0, [0.5, -0.5, 1.0, -1.0]),
+            (0.5, [0.25, -0.25, 0.5, -0.5]),
+            (0.0, [0.0; 4]),
+        ] {
+            let shared = SharedPcm::new(4);
+            shared.push(&[0.5, -0.5, 1.0, -1.0]).unwrap();
+            shared.set_gain(gain).unwrap();
+            let (sender, _) = mpsc::channel();
+            let mut output = [9.0f32; 4];
+            fill_output(&mut output, &shared, &sender, 2);
+            assert_eq!(output, expected);
+            assert_eq!(shared.played_frames.load(Ordering::Acquire), 2);
+        }
+    }
+
+    #[test]
+    fn output_gain_precedes_integer_conversion() {
+        let shared = SharedPcm::new(4);
+        shared.push(&[0.5, -0.5, 1.0, -1.0]).unwrap();
+        shared.set_gain(0.5).unwrap();
+        let (sender, _) = mpsc::channel();
+        let mut output = [0i16; 4];
+        fill_output(&mut output, &shared, &sender, 2);
+        assert_eq!(output, [8192, -8192, 16384, -16384]);
+    }
+
+    #[test]
+    fn invalid_gain_preserves_previous_pcm_gain() {
+        let shared = SharedPcm::new(1);
+        shared.set_gain(0.5).unwrap();
+        for invalid in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
+            assert!(shared.set_gain(invalid).is_err());
+            shared.push(&[0.5]).unwrap();
+            let (sender, _) = mpsc::channel();
+            let mut output = [0.0f32];
+            fill_output(&mut output, &shared, &sender, 1);
+            assert_eq!(output, [0.25]);
+        }
+    }
+
+    #[test]
     fn required_audio_formats_decode_completely_without_an_audio_device() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/audio");
 
@@ -1080,7 +1245,7 @@ mod tests {
             let mut emitted_samples = 0usize;
             decode_audio(file, Some(len), 0, info, 2, |samples| {
                 emitted_samples += samples.len();
-                Ok(())
+                Ok(PcmWrite::Continue)
             })
             .unwrap();
 

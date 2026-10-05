@@ -5,7 +5,11 @@
 //! belong here; disc validation, payload access, decoding, and audio playback
 //! remain backend responsibilities.
 
+#[cfg(target_os = "linux")]
+mod audio_integration;
 mod core_integration;
+#[cfg(target_os = "linux")]
+pub use audio_integration::{AudioIntegrationError, AudioPlayerBridge};
 mod error_translation;
 mod lcd;
 mod navigation;

@@ -8,3 +8,4 @@ path = "src/lib.rs"
 
 [dependencies]
 vdisc-core = { path = "../vdisc-core" }
+fastrand = "=2.5.0"

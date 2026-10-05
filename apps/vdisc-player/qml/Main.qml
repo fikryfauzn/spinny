@@ -16,6 +16,8 @@ Window {
     readonly property alias controls: controlSurface
     readonly property alias spin: discSpin
     readonly property alias inspection: discInspection
+    readonly property alias audioRuntime: audioRuntime
+    readonly property alias audioTestControls: audioTestControls
     readonly property alias openingAnimation: openingMotion
     readonly property alias closingAnimation: closingMotion
 
@@ -39,6 +41,11 @@ Window {
 
     ApplianceBridge {
         id: applianceBridge
+    }
+
+    AudioRuntime {
+        id: audioRuntime
+        appliance: applianceBridge
     }
 
     Shortcut {
@@ -163,6 +170,15 @@ Window {
         sceneRoot: greyboxScene
         discModel: discSpin.discModel
         windowActive: active
+        filePickerVisible: discDeck.filePickerVisible
+    }
+
+    AudioTestControls {
+        id: audioTestControls
+        anchors.left: sceneView.left
+        anchors.bottom: sceneView.bottom
+        anchors.margins: 16
+        appliance: applianceBridge
         filePickerVisible: discDeck.filePickerVisible
     }
 

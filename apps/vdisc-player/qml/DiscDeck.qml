@@ -29,8 +29,8 @@ Item {
             discRoot.parent.mapPositionToScene(Placement.stagePose()))
     }
     readonly property string statusText: !assetReady ? "Disc asset contract failure"
-        : appliance.lastRejection !== "" ? appliance.lastRejection
         : appliance.machineError !== "" ? appliance.machineError
+        : appliance.lastRejection !== "" ? appliance.lastRejection
         : selectedPath !== "" ? selectedPath
         : "Choose a .vdisc, then open the lid"
 

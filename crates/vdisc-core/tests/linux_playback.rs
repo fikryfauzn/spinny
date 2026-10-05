@@ -22,6 +22,7 @@ struct Shared {
     pauses: usize,
     fail_open: bool,
     position_ms: u64,
+    gain: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,14 @@ struct FakeSession {
 }
 
 impl PlaybackSession for FakeSession {
+    fn set_gain(&self, gain: f32) -> PlaybackResult<()> {
+        if !gain.is_finite() || !(0.0..=1.0).contains(&gain) {
+            return Err(PlaybackError::BackendInvariant("invalid test gain"));
+        }
+        self.shared.lock().unwrap().gain = gain;
+        Ok(())
+    }
+
     fn play(&self) -> PlaybackResult<()> {
         self.shared.lock().unwrap().plays += 1;
         Ok(())

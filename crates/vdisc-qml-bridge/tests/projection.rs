@@ -1,6 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use vdisc_qml_bridge::{ApplianceRuntime, Command};
+#[path = "../../vdisc-appliance/tests/support/audio_backend.rs"]
+mod audio;
+use audio::AudioBackend;
+fn new() -> ApplianceRuntime<AudioBackend> {
+    ApplianceRuntime::with_backend(AudioBackend::default())
+}
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -10,7 +16,7 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn initial_projection_has_stable_states_and_empty_lcd_facts() {
-    let snapshot = ApplianceRuntime::new().snapshot();
+    let snapshot = new().snapshot();
     assert_eq!(snapshot.lid_state, "Closed");
     assert_eq!(snapshot.disc_state, "Absent");
     assert_eq!(snapshot.transport_state, "Stopped");
@@ -28,7 +34,7 @@ fn initial_projection_has_stable_states_and_empty_lcd_facts() {
 
 #[test]
 fn projection_is_a_value_not_a_second_machine() {
-    let mut runtime = ApplianceRuntime::new();
+    let mut runtime = new();
     let before = runtime.snapshot();
     runtime.execute(Command::Open).unwrap();
     let after = runtime.snapshot();
@@ -38,7 +44,7 @@ fn projection_is_a_value_not_a_second_machine() {
 
 #[test]
 fn volume_hold_and_avls_project_from_controller() {
-    let mut runtime = ApplianceRuntime::new();
+    let mut runtime = new();
     runtime.execute(Command::SetVolume(0.8)).unwrap();
     assert_eq!(runtime.snapshot().volume, 0.8);
     assert_eq!(runtime.snapshot().application_gain, 0.8);
@@ -57,7 +63,7 @@ fn volume_hold_and_avls_project_from_controller() {
 
 #[test]
 fn real_disc_facts_enter_lcd_only_after_core_validation() {
-    let mut runtime = ApplianceRuntime::new();
+    let mut runtime = new();
     runtime.execute(Command::Open).unwrap();
     runtime.execute(Command::LidOpened).unwrap();
     runtime
@@ -73,7 +79,7 @@ fn real_disc_facts_enter_lcd_only_after_core_validation() {
 
 #[test]
 fn rejected_disc_projects_machine_error_not_raw_backend_diagnostic() {
-    let mut runtime = ApplianceRuntime::new();
+    let mut runtime = new();
     runtime.execute(Command::Open).unwrap();
     runtime.execute(Command::LidOpened).unwrap();
     assert!(

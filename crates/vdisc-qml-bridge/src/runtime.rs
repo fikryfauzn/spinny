@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use vdisc_appliance::{
-    CorePlayerBridge, De200Controller, DiscState, PlaybackPosition, ScanDirection, Volume,
+    AudioPlayerBridge, De200Controller, DiscState, PlaybackPosition, ScanDirection, Volume,
 };
+use vdisc_core::{CpalBackend, PlaybackBackend};
 
 #[derive(Debug)]
 pub enum Command {
@@ -30,16 +31,22 @@ pub enum Command {
 }
 
 /// Thin command boundary over the two authoritative Phase 2 owners.
-pub struct ApplianceRuntime {
+pub struct ApplianceRuntime<B: PlaybackBackend = CpalBackend> {
     pub(crate) controller: De200Controller,
-    pub(crate) backend: CorePlayerBridge,
+    pub(crate) backend: AudioPlayerBridge<B>,
 }
 
-impl ApplianceRuntime {
+impl ApplianceRuntime<CpalBackend> {
     pub fn new() -> Self {
+        Self::with_backend(CpalBackend)
+    }
+}
+
+impl<B: PlaybackBackend> ApplianceRuntime<B> {
+    pub fn with_backend(backend: B) -> Self {
         Self {
             controller: De200Controller::new(Volume::new(0.5).expect("valid initial volume")),
-            backend: CorePlayerBridge::new(),
+            backend: AudioPlayerBridge::with_backend(backend),
         }
     }
 
@@ -47,11 +54,12 @@ impl ApplianceRuntime {
         &self.controller
     }
 
-    pub fn backend(&self) -> &CorePlayerBridge {
+    pub fn backend(&self) -> &AudioPlayerBridge<B> {
         &self.backend
     }
 
     pub fn execute(&mut self, command: Command) -> Result<(), String> {
+        self.poll_backend()?;
         match command {
             Command::Open => self
                 .controller
@@ -126,11 +134,14 @@ impl ApplianceRuntime {
                 .request_cycle_play_mode()
                 .map(|_| ())
                 .map_err(|e| e.to_string()),
-            Command::MenuLong | Command::ToggleAvls => self
-                .controller
-                .request_toggle_avls()
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
+            Command::MenuLong | Command::ToggleAvls => {
+                self.controller
+                    .request_toggle_avls()
+                    .map_err(|e| e.to_string())?;
+                self.backend
+                    .sync_gain(&mut self.controller)
+                    .map_err(|e| e.to_string())
+            }
             Command::SetHold(enabled) => {
                 self.controller.set_hold_enabled(enabled);
                 Ok(())
@@ -138,7 +149,9 @@ impl ApplianceRuntime {
             Command::SetVolume(value) => {
                 let volume = Volume::new(value).map_err(|e| e.to_string())?;
                 self.controller.request_set_volume(volume);
-                Ok(())
+                self.backend
+                    .sync_gain(&mut self.controller)
+                    .map_err(|e| e.to_string())
             }
             Command::LidOpened => self
                 .controller
@@ -157,6 +170,12 @@ impl ApplianceRuntime {
                 .complete_disc_removal(&mut self.controller)
                 .map_err(|e| e.to_string()),
         }
+    }
+
+    pub fn poll_backend(&mut self) -> Result<(), String> {
+        self.backend
+            .poll(&mut self.controller)
+            .map_err(|e| e.to_string())
     }
 }
 
