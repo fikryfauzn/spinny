@@ -46,6 +46,8 @@ qt_add_qml_module(vdisc-player
         qml/Main.qml
         qml/DiscDeck.qml
         qml/DiscPlacement.js
+        qml/ButtonTravel.qml
+        qml/ControlSurface.qml
         generated/phase03-greybox/Phase03_greybox.qml
     RESOURCES ${greybox_meshes}
 )

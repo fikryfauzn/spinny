@@ -14,6 +14,7 @@ Item {
     readonly property alias removalAnimation: removeMotion
     property string selectedPath: ""
     property bool dragging: false
+    signal filePickerOpened()
     property vector3d dragOffset: Qt.vector3d(0, 0, 0)
     readonly property bool assetReady: discRoot !== null && discModel !== null
                                        && spindleModel !== null
@@ -255,6 +256,10 @@ Item {
         id: discFileDialog
         title: "Choose a VDISC"
         nameFilters: ["VDISC discs (*.vdisc)"]
+        onVisibleChanged: {
+            if (visible)
+                deck.filePickerOpened()
+        }
         onAccepted: deck.selectDiscUrl(selectedFile)
     }
 }
