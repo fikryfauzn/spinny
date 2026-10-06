@@ -78,6 +78,11 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
     pub fn track_count(&self) -> usize {
         self.player.track_count()
     }
+    pub fn current_track_duration_ms(&self) -> Option<u64> {
+        self.player
+            .current_track()
+            .and_then(|track| track.duration_ms)
+    }
     pub fn position(&self) -> PlaybackPosition {
         PlaybackPosition::from_millis(
             self.session

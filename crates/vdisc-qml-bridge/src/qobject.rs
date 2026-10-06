@@ -108,6 +108,14 @@ pub mod ffi {
         fn request_scan_step(self: Pin<&mut Self>, target_ms: i64) -> bool;
 
         #[qinvokable]
+        #[cxx_name = "requestScanRelative"]
+        fn request_scan_relative(self: Pin<&mut Self>, delta_ms: i64) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "inputTimeMs"]
+        fn input_time_ms(&self) -> i64;
+
+        #[qinvokable]
         #[cxx_name = "requestMenuShort"]
         fn request_menu_short(self: Pin<&mut Self>) -> bool;
 
@@ -282,6 +290,16 @@ impl ffi::ApplianceBridge {
 
     pub fn request_scan_step(self: Pin<&mut Self>, target_ms: i64) -> bool {
         self.dispatch(Command::ScanStep(target_ms))
+    }
+
+    pub fn request_scan_relative(self: Pin<&mut Self>, delta_ms: i64) -> bool {
+        self.dispatch(Command::ScanRelative(delta_ms))
+    }
+
+    pub fn input_time_ms(&self) -> i64 {
+        static ORIGIN: std::sync::LazyLock<std::time::Instant> =
+            std::sync::LazyLock::new(std::time::Instant::now);
+        i64::try_from(ORIGIN.elapsed().as_millis()).unwrap_or(i64::MAX)
     }
 
     pub fn request_menu_short(self: Pin<&mut Self>) -> bool {

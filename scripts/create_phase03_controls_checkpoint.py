@@ -12,11 +12,13 @@ from mathutils import Matrix
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.dont_write_bytecode = True
-from validate_phase03_greybox import PARENTS, SCENE_NAME, validate_scene
+from validate_phase03_greybox import LEGACY_PARENTS as PARENTS, SCENE_NAME, validate_scene
 
 repo = Path(__file__).resolve().parents[1]
 baseline = repo / "assets/blender/phase03-greybox-02.blend"
 output = repo / "assets/blender/phase03-controls-proof.blend"
+if "--checkpoint-output" in sys.argv:
+    output = Path(sys.argv[sys.argv.index("--checkpoint-output") + 1]).resolve()
 if Path(bpy.data.filepath).resolve() != baseline or output.exists():
     raise RuntimeError("Open the original checkpoint; destination must not already exist")
 scene = bpy.context.scene
@@ -54,7 +56,7 @@ for name, x in (("BTN_PREVIOUS_TEST", -0.033), ("BTN_NEXT_TEST", -0.015)):
 bpy.context.view_layer.update()
 if any(snapshot(scene.objects[name]) != saved for name, saved in before.items()):
     raise RuntimeError("An existing object changed")
-errors, summary = validate_scene()
+errors, summary = validate_scene(profile="legacy")
 if errors:
     raise RuntimeError("Invalid controls checkpoint: " + "; ".join(errors))
 status = bpy.ops.wm.save_as_mainfile(filepath=str(output), check_existing=False)

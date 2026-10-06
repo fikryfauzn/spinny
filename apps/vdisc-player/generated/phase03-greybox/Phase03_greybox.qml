@@ -7,25 +7,9 @@ Node {
 
     // Resources
     PrincipledMaterial {
-        id: grey_BODY_material
-        objectName: "GREY_BODY"
-        baseColor: "#ffa0a8b1"
-        roughness: 0.5
-        cullMode: PrincipledMaterial.NoCulling
-        alphaMode: PrincipledMaterial.Opaque
-    }
-    PrincipledMaterial {
-        id: grey_BUTTON_material
-        objectName: "GREY_BUTTON"
-        baseColor: "#ff6c737b"
-        roughness: 0.5
-        cullMode: PrincipledMaterial.NoCulling
-        alphaMode: PrincipledMaterial.Opaque
-    }
-    PrincipledMaterial {
-        id: grey_DISC_material
-        objectName: "GREY_DISC"
-        baseColor: "#ffdce2e6"
+        id: grey_LID_material
+        objectName: "GREY_LID"
+        baseColor: "#ffc3cbd3"
         roughness: 0.5
         cullMode: PrincipledMaterial.NoCulling
         alphaMode: PrincipledMaterial.Opaque
@@ -39,9 +23,25 @@ Node {
         alphaMode: PrincipledMaterial.Opaque
     }
     PrincipledMaterial {
-        id: grey_LID_material
-        objectName: "GREY_LID"
-        baseColor: "#ffc3cbd3"
+        id: grey_DISC_material
+        objectName: "GREY_DISC"
+        baseColor: "#ffdce2e6"
+        roughness: 0.5
+        cullMode: PrincipledMaterial.NoCulling
+        alphaMode: PrincipledMaterial.Opaque
+    }
+    PrincipledMaterial {
+        id: grey_BUTTON_material
+        objectName: "GREY_BUTTON"
+        baseColor: "#ff6c737b"
+        roughness: 0.5
+        cullMode: PrincipledMaterial.NoCulling
+        alphaMode: PrincipledMaterial.Opaque
+    }
+    PrincipledMaterial {
+        id: grey_BODY_material
+        objectName: "GREY_BODY"
+        baseColor: "#ffa0a8b1"
         roughness: 0.5
         cullMode: PrincipledMaterial.NoCulling
         alphaMode: PrincipledMaterial.Opaque
@@ -57,6 +57,15 @@ Node {
             source: "meshes/body_TEST_MESH_mesh.mesh"
             materials: [
                 grey_BODY_material
+            ]
+        }
+        Model {
+            id: btn_MENU_TEST
+            objectName: "BTN_MENU_TEST"
+            position: Qt.vector3d(0.003, 0.013, 0.073)
+            source: "meshes/btn_MENU_TEST_MESH_mesh.mesh"
+            materials: [
+                grey_BUTTON_material
             ]
         }
         Model {
@@ -127,6 +136,24 @@ Node {
             }
         }
         Model {
+            id: hold_KNOB_TEST
+            objectName: "HOLD_KNOB_TEST"
+            position: Qt.vector3d(0.017, 0.013, 0.0735)
+            source: "meshes/hold_KNOB_TEST_MESH_mesh.mesh"
+            materials: [
+                grey_BUTTON_material
+            ]
+        }
+        Model {
+            id: hold_RAIL_TEST
+            objectName: "HOLD_RAIL_TEST"
+            position: Qt.vector3d(0.02, 0.013, 0.073)
+            source: "meshes/hold_RAIL_TEST_MESH_mesh.mesh"
+            materials: [
+                grey_BUTTON_material
+            ]
+        }
+        Model {
             id: lcd_TEST
             objectName: "LCD_TEST"
             position: Qt.vector3d(0.033, 0.0221, 0.069)
@@ -154,6 +181,24 @@ Node {
             source: "meshes/spindle_TEST_MESH_mesh.mesh"
             materials: [
                 grey_BODY_material
+            ]
+        }
+        Model {
+            id: volume_KNOB_TEST
+            objectName: "VOLUME_KNOB_TEST"
+            position: Qt.vector3d(0.043, 0.013, 0.0735)
+            source: "meshes/volume_KNOB_TEST_MESH_mesh.mesh"
+            materials: [
+                grey_BUTTON_material
+            ]
+        }
+        Model {
+            id: volume_RAIL_TEST
+            objectName: "VOLUME_RAIL_TEST"
+            position: Qt.vector3d(0.043, 0.013, 0.073)
+            source: "meshes/volume_RAIL_TEST_MESH_mesh.mesh"
+            materials: [
+                grey_BUTTON_material
             ]
         }
     }

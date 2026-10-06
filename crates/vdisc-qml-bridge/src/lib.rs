@@ -5,6 +5,7 @@ mod projection;
 #[cfg(feature = "qml")]
 mod qobject;
 mod runtime;
+mod scan_target;
 #[cfg(feature = "qml-test-support")]
 mod test_audio;
 

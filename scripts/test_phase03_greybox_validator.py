@@ -22,12 +22,22 @@ def must_fail(label, fragment):
 
 
 assert not validate_scene()[0]
-assert len(bpy.context.scene.objects) == 14, "Physical PREVIOUS/NEXT nodes are required"
+assert len(bpy.context.scene.objects) == 19, "Complete physical controls are required"
 
-for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"):
+for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST", "BTN_MENU_TEST", "HOLD_RAIL_TEST", "HOLD_KNOB_TEST", "VOLUME_RAIL_TEST", "VOLUME_KNOB_TEST"):
     obj = bpy.data.objects[name]
     obj.name = "WRONG_BUTTON"
     must_fail("missing control", "Missing objects")
+    obj.name = name
+    duplicate = obj.copy()
+    bpy.context.scene.collection.objects.link(duplicate)
+    must_fail("duplicate control", "Unexpected objects")
+    bpy.data.objects.remove(duplicate, do_unlink=True)
+    obj.name = "TEMP_ORIGINAL"
+    empty = bpy.data.objects.new(name, None)
+    bpy.context.scene.collection.objects.link(empty)
+    must_fail("wrong control type", "type")
+    bpy.data.objects.remove(empty, do_unlink=True)
     obj.name = name
     parent = obj.parent
     obj.parent = bpy.data.objects["LID_ROOT"]
@@ -39,9 +49,9 @@ for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"):
     obj.location.x += 0.002
     must_fail("shifted control", "location")
     obj.location.x -= 0.002
-    obj.data.vertices[0].co.x += 0.02
+    obj.data.vertices[0].co.x += 0.2
     must_fail("wrong control dimensions", "dimensions")
-    obj.data.vertices[0].co.x -= 0.02
+    obj.data.vertices[0].co.x -= 0.2
 
 disc = bpy.data.objects["DISC_ROOT"]
 disc.delta_location.x = 0.002

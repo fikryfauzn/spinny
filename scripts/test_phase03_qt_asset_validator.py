@@ -13,8 +13,29 @@ import validate_phase03_qt_asset as validator
 class ControlsAssetTests(unittest.TestCase):
     def test_controls_present(self):
         result = validator.validate()
-        self.assertEqual(result["nodes"], 14)
-        self.assertEqual(result["meshes"], 11)
+        self.assertEqual(result["nodes"], 19)
+        self.assertEqual(result["meshes"], 16)
+
+    def test_new_handle_mutations_rejected(self):
+        source = validator.ASSET.read_text()
+        for name in ("BTN_MENU_TEST", "HOLD_RAIL_TEST", "HOLD_KNOB_TEST", "VOLUME_RAIL_TEST", "VOLUME_KNOB_TEST"):
+            self.assertIn(f'objectName: "{name}"', source)
+            block = re.search(r'        Model \{\n            id: [^\n]+\n            objectName: "' + name + r'"\n.*?\n        \}', source, re.S).group()
+            without = source.replace(block, "")
+            mutants = [source.replace(f'objectName: "{name}"', f'objectName: "{replacement}"')
+                       for replacement in ("MISSING", "BTN_PLAY_TEST")]
+            mutants.extend([
+                source.replace(block, block.replace("Model {", "Node {", 1)),
+                source.replace(block, re.sub(r'position: Qt.vector3d\([^\n]+\)', 'position: Qt.vector3d(1, 2, 3)', block)),
+                without.replace('        objectName: "LID_ROOT"', '        objectName: "LID_ROOT"\n' + block),
+            ])
+            for mutant in mutants:
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "asset.qml"
+                    (Path(tmp) / "meshes").symlink_to((validator.ASSET.parent / "meshes").resolve(), target_is_directory=True)
+                    path.write_text(mutant)
+                    with self.assertRaises(ValueError):
+                        validator.validate(path)
 
     def test_invalid_control_contract_rejected(self):
         source = validator.ASSET.read_text()

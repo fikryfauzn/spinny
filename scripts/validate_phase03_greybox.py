@@ -30,6 +30,14 @@ PARENTS = {
     "LCD_TEST": "PLAYER_ROOT",
 }
 EMPTY_NAMES = {"PLAYER_ROOT", "LID_ROOT", "DISC_ROOT"}
+LEGACY_PARENTS = PARENTS.copy()
+PARENTS.update({
+    "BTN_MENU_TEST": "PLAYER_ROOT",
+    "HOLD_RAIL_TEST": "PLAYER_ROOT",
+    "HOLD_KNOB_TEST": "PLAYER_ROOT",
+    "VOLUME_RAIL_TEST": "PLAYER_ROOT",
+    "VOLUME_KNOB_TEST": "PLAYER_ROOT",
+})
 LOCATIONS = {
     "PLAYER_ROOT": (0, 0, 0),
     "BODY_TEST": (0, 0, 0),
@@ -60,6 +68,20 @@ DIMENSIONS = {
     "LCD_TEST": (0.045, 0.006, 0.0002),
 }
 TOLERANCE = 1e-5
+LOCATIONS.update({
+    "BTN_MENU_TEST": (0.003, -0.073, 0.013),
+    "HOLD_RAIL_TEST": (0.02, -0.073, 0.013),
+    "HOLD_KNOB_TEST": (0.017, -0.0735, 0.013),
+    "VOLUME_RAIL_TEST": (0.043, -0.073, 0.013),
+    "VOLUME_KNOB_TEST": (0.043, -0.0735, 0.013),
+})
+DIMENSIONS.update({
+    "BTN_MENU_TEST": (0.01, 0.003, 0.006),
+    "HOLD_RAIL_TEST": (0.01, 0.001, 0.006),
+    "HOLD_KNOB_TEST": (0.004, 0.002, 0.006),
+    "VOLUME_RAIL_TEST": (0.025, 0.001, 0.006),
+    "VOLUME_KNOB_TEST": (0.003, 0.002, 0.006),
+})
 
 
 def close(actual, expected):
@@ -89,7 +111,10 @@ def bounds(objects):
     )
 
 
-def validate_scene():
+def validate_scene(profile="complete"):
+    if profile not in {"legacy", "complete"}:
+        raise ValueError("Unknown asset profile")
+    parents = LEGACY_PARENTS if profile == "legacy" else PARENTS
     errors = []
     scene = bpy.data.scenes.get(SCENE_NAME)
     if scene is None:
@@ -101,15 +126,15 @@ def validate_scene():
         errors.append("Scene must use metric units at 1 Blender unit per meter")
 
     actual_names = {obj.name for obj in scene.objects}
-    missing = set(PARENTS) - actual_names
-    extra = actual_names - set(PARENTS)
+    missing = set(parents) - actual_names
+    extra = actual_names - set(parents)
     if missing:
         errors.append(f"Missing objects: {sorted(missing)}")
     if extra:
         errors.append(f"Unexpected objects: {sorted(extra)}")
 
     expected_world = {}
-    for name, expected_parent in PARENTS.items():
+    for name, expected_parent in parents.items():
         obj = scene.objects.get(name)
         if obj is None:
             continue
@@ -182,7 +207,7 @@ def validate_scene():
         if max(point.z for point in disc_points) >= lid_bottom:
             errors.append("Disc intersects closed lid")
         lid_min, lid_max = bounds([lid])
-        for name in (*[n for n in PARENTS if n.startswith("BTN_")], "LCD_TEST"):
+        for name in (*[n for n in parents if n.startswith(("BTN_", "HOLD_", "VOLUME_"))], "LCD_TEST"):
             control_min, control_max = bounds([scene.objects[name]])
             overlap_x = control_min[0] < lid_max[0] and control_max[0] > lid_min[0]
             overlap_y = control_min[1] < lid_max[1] and control_max[1] > lid_min[1]

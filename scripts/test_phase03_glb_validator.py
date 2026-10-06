@@ -12,10 +12,10 @@ import validate_phase03_glb as validator  # noqa: E402
 path = Path("assets/runtime/phase03-greybox.glb")
 document = validator.read_glb_json(path)
 assert validator.validate(path)["status"] == "ok"
-assert validator.validate(path)["nodes"] == 14, "Physical PREVIOUS/NEXT nodes are required"
+assert validator.validate(path)["nodes"] == 19, "Complete physical controls are required"
 
-for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"):
-    for kind in ("missing", "duplicate", "position", "parent"):
+for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST", "BTN_MENU_TEST", "HOLD_RAIL_TEST", "HOLD_KNOB_TEST", "VOLUME_RAIL_TEST", "VOLUME_KNOB_TEST"):
+    for kind in ("missing", "duplicate", "position", "parent", "type"):
         mutant = copy.deepcopy(document)
         index = next(i for i, node in enumerate(mutant["nodes"]) if node.get("name") == name)
         if kind == "missing":
@@ -24,6 +24,8 @@ for name in ("BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"):
             mutant["nodes"].append(copy.deepcopy(mutant["nodes"][index]))
         elif kind == "position":
             mutant["nodes"][index]["translation"] = [0, 0, 0]
+        elif kind == "type":
+            mutant["nodes"][index].pop("mesh", None)
         else:
             for node in mutant["nodes"]:
                 if index in node.get("children", []):

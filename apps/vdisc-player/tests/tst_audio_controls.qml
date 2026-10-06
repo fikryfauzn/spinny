@@ -9,8 +9,8 @@ TestCase {
     function setup(play) {
         const app = createTemporaryObject(appComponent, null)
         verify(app !== null)
-        verify(app.audioTestControls !== undefined)
         tryCompare(app.contentItem, "width", app.width, 500)
+        app.controls.windowActive = true
         if (play) {
             verify(app.appliance.requestOpen()); tryCompare(app.appliance, "lidState", "Open", 1200)
             verify(app.discDeck.selectDiscUrl(String(Qt.resolvedUrl("../../../tests/fixtures/vdisc/transport-two-track.vdisc"))))
@@ -22,71 +22,72 @@ TestCase {
         }
         return app
     }
-    function high(slider) {
-        slider.forceActiveFocus()
-        for (let i = 0; i < 100; ++i)
-            keyClick(Qt.Key_Right)
+    function volume(app, x) {
+        const rail = app.controls.resolve("VOLUME_RAIL_TEST")
+        const scene = rail.parent.mapPositionToScene(Qt.vector3d(x, 0.013, 0.0735))
+        const point = app.controls.view3d.mapFrom3DScene(scene)
+        verify(app.controls.beginRail(rail, point.x, point.y))
+        verify(app.controls.finishRail(point.x, point.y))
     }
-    function test_keyboard_and_mouse_change_live_session_gain() {
+    function menu(app) {
+        let clock = 0
+        app.controls.gesture.nowMs = function() { return clock }
+        const button = app.controls.buttonForName("BTN_MENU_TEST")
+        verify(app.controls.beginPress(button))
+        clock = 600
+        return app.controls.finishPress(button)
+    }
+    function test_physical_volume_changes_live_session_gain() {
         const app = setup(true)
-        const slider = app.audioTestControls.volumeSlider
-        slider.forceActiveFocus(); keyClick(Qt.Key_Right)
-        fuzzyCompare(app.appliance.volume, 0.51, 0.00001)
-        fuzzyCompare(audioTestDriver.gain(), 0.51, 0.00001)
-        mouseClick(slider, slider.width * 0.25, slider.height / 2)
-        verify(app.appliance.volume < 0.4)
-        fuzzyCompare(audioTestDriver.gain(), app.appliance.volume, 0.00001)
-        slider.forceActiveFocus()
-        for (let i = 0; i < 100; ++i)
-            keyClick(Qt.Key_Left)
+        volume(app, 0.0375)
+        fuzzyCompare(app.appliance.volume, 0.25, 0.00001)
+        fuzzyCompare(audioTestDriver.gain(), 0.25, 0.00001)
+        volume(app, 0.01)
         compare(app.appliance.volume, 0)
         compare(audioTestDriver.gain(), 0)
+        compare(app.appliance.transportState, "Playing")
     }
-    function test_repeated_avls_clamp_restores_slider_without_notify() {
+    function test_repeated_avls_clamp_restores_knob_without_notify() {
         const app = setup(true)
-        const panel = app.audioTestControls
-        high(panel.volumeSlider)
-        mouseClick(panel.avlsButton)
+        volume(app, 0.06)
+        verify(menu(app))
         verify(app.appliance.avlsEnabled)
-        fuzzyCompare(panel.volumeSlider.value, 0.75, 0.00001)
         fuzzyCompare(audioTestDriver.gain(), 0.75, 0.00001)
         for (let i = 0; i < 3; ++i) {
-            high(panel.volumeSlider)
-            fuzzyCompare(panel.volumeSlider.value, 0.75, 0.00001)
+            volume(app, 0.06)
+            fuzzyCompare(app.controls.resolve("VOLUME_KNOB_TEST").x, 0.0485, 0.000001)
             fuzzyCompare(app.appliance.volume, 0.75, 0.00001)
         }
-        mouseClick(panel.avlsButton)
+        verify(menu(app))
         verify(!app.appliance.avlsEnabled)
-        fuzzyCompare(panel.volumeSlider.value, 0.75, 0.00001)
+        fuzzyCompare(app.appliance.volume, 0.75, 0.00001)
     }
-    function test_hold_allows_volume_rejects_avls_and_restores_toggle() {
+    function test_hold_allows_volume_rejects_menu() {
         const app = setup(false)
         verify(app.appliance.setHold(true))
-        high(app.audioTestControls.volumeSlider)
+        volume(app, 0.06)
         compare(app.appliance.volume, 1)
-        mouseClick(app.audioTestControls.avlsButton)
+        verify(!menu(app))
         verify(!app.appliance.avlsEnabled)
-        verify(!app.audioTestControls.avlsButton.checked)
         verify(app.appliance.lastRejection.length > 0)
     }
-    function test_real_file_dialog_disables_panel_and_outside_controls_work() {
+    function test_real_file_dialog_blocks_physical_input() {
         const app = setup(false)
-        compare(app.audioTestControls.width, 280)
-        verify(app.audioTestControls.y > 60)
+        const button = app.controls.buttonForName("BTN_OPEN_TEST")
+        verify(app.controls.beginPress(button))
         mouseClick(app.discDeck, 70, 35)
         tryCompare(app.discDeck, "filePickerVisible", true, 500)
-        verify(!app.audioTestControls.enabled)
-        // QtTest key events target its own window, not the modal native dialog.
-        // Close the real dialog object after verifying its production visibility binding.
+        verify(!app.controls.inputActive)
+        compare(app.controls.captureKind, "")
+        verify(!app.controls.beginPress(button))
         let dialog = null
         for (const object of app.discDeck.data) {
-            if (object.title === "Choose a VDISC")
-                dialog = object
+            if (object.title === "Choose a VDISC") dialog = object
         }
         verify(dialog !== null)
         dialog.close()
         tryCompare(app.discDeck, "filePickerVisible", false, 500)
-        verify(app.audioTestControls.enabled)
+        verify(app.controls.inputActive)
         mouseClick(app.inspection, app.width - 90, 35)
         verify(app.inspection.cutawayEnabled)
     }

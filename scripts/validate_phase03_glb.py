@@ -36,6 +36,21 @@ TRANSLATIONS = {
 }
 
 
+PARENTS.update({
+    "BTN_MENU_TEST": "PLAYER_ROOT",
+    "HOLD_RAIL_TEST": "PLAYER_ROOT",
+    "HOLD_KNOB_TEST": "PLAYER_ROOT",
+    "VOLUME_RAIL_TEST": "PLAYER_ROOT",
+    "VOLUME_KNOB_TEST": "PLAYER_ROOT",
+})
+TRANSLATIONS.update({
+    "BTN_MENU_TEST": (0.003, 0.013, 0.073),
+    "HOLD_RAIL_TEST": (0.02, 0.013, 0.073),
+    "HOLD_KNOB_TEST": (0.017, 0.013, 0.0735),
+    "VOLUME_RAIL_TEST": (0.043, 0.013, 0.073),
+    "VOLUME_KNOB_TEST": (0.043, 0.013, 0.0735),
+})
+
 def close(actual, expected):
     return all(
         math.isclose(float(a), float(b), rel_tol=0, abs_tol=1e-5)
