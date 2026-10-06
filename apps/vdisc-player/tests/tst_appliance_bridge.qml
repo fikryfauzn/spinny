@@ -28,6 +28,9 @@ TestCase {
             const bridge = app.appliance
             verify(bridge !== undefined && bridge !== null)
             compare(bridge.lidState, "Closed")
+            compare(bridge.lcdFeedbackActive, false)
+            try { bridge.lcdFeedbackActive = true } catch (error) {}
+            compare(bridge.lcdFeedbackActive, false)
             verify(bridge.requestOpen())
             compare(bridge.lidState, "Opening")
         } finally {

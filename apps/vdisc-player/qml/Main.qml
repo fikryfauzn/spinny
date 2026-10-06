@@ -17,6 +17,8 @@ Window {
     readonly property alias spin: discSpin
     readonly property alias inspection: discInspection
     readonly property alias audioRuntime: audioRuntime
+    readonly property alias lcdFeedbackRuntime: lcdFeedbackRuntime
+    readonly property alias lcdSurface: lcdSurface
     readonly property alias audioTestControls: audioTestControls
     readonly property alias openingAnimation: openingMotion
     readonly property alias closingAnimation: closingMotion
@@ -45,6 +47,11 @@ Window {
 
     AudioRuntime {
         id: audioRuntime
+        appliance: applianceBridge
+    }
+
+    LcdFeedbackRuntime {
+        id: lcdFeedbackRuntime
         appliance: applianceBridge
     }
 
@@ -164,10 +171,17 @@ Window {
         sceneRoot: greyboxScene
     }
 
+    LcdSurface {
+        id: lcdSurface
+        appliance: applianceBridge
+        sceneRoot: greyboxScene
+    }
+
     DiscInspection {
         id: discInspection
         anchors.fill: sceneView
         sceneRoot: greyboxScene
+        camera: sceneCamera
         discModel: discSpin.discModel
         windowActive: active
         filePickerVisible: discDeck.filePickerVisible
@@ -190,7 +204,7 @@ Window {
         width: 260
         color: "#ffc8a0"
         wrapMode: Text.Wrap
-        text: [discSpin.assetError, discInspection.assetError].filter(function(error) {
+        text: [discSpin.assetError, discInspection.assetError, lcdSurface.assetError].filter(function(error) {
             return error.length > 0
         }).join("\n")
         visible: text.length > 0

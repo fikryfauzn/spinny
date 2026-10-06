@@ -41,12 +41,23 @@ pub mod ffi {
             cxx_name = "lcdPlaybackStatus"
         )]
         #[qproperty(QString, lcd_message, READ, NOTIFY, cxx_name = "lcdMessage")]
+        #[qproperty(
+            bool,
+            lcd_feedback_active,
+            READ,
+            NOTIFY,
+            cxx_name = "lcdFeedbackActive"
+        )]
         #[qproperty(QString, last_rejection, READ, NOTIFY, cxx_name = "lastRejection")]
         type ApplianceBridge = super::ApplianceBridgeRust;
 
         #[qinvokable]
         #[cxx_name = "pollBackend"]
         fn poll_backend(self: Pin<&mut Self>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "refreshLcdFeedback"]
+        fn refresh_lcd_feedback(self: Pin<&mut Self>);
 
         #[qinvokable]
         #[cxx_name = "requestOpen"]
@@ -154,6 +165,7 @@ pub struct ApplianceBridgeRust {
     lcd_avls: bool,
     lcd_playback_status: QString,
     lcd_message: QString,
+    lcd_feedback_active: bool,
     last_rejection: QString,
 }
 
@@ -181,6 +193,7 @@ impl Default for ApplianceBridgeRust {
             lcd_avls: snapshot.lcd_avls,
             lcd_playback_status: QString::from(snapshot.lcd_playback_status.as_str()),
             lcd_message: QString::from(snapshot.lcd_message.as_str()),
+            lcd_feedback_active: snapshot.lcd_feedback_active,
             last_rejection: QString::default(),
         }
     }
@@ -197,6 +210,12 @@ macro_rules! update_projection {
 }
 
 impl ffi::ApplianceBridge {
+    pub fn refresh_lcd_feedback(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().runtime.refresh_lcd_feedback();
+        let snapshot = self.as_ref().rust().runtime.snapshot();
+        self.as_mut().refresh(snapshot);
+    }
+
     pub fn poll_backend(mut self: Pin<&mut Self>) -> bool {
         let result = self.as_mut().rust_mut().runtime.poll_backend();
         let snapshot = self.as_ref().rust().runtime.snapshot();
@@ -403,6 +422,12 @@ impl ffi::ApplianceBridge {
             lcd_message,
             QString::from(snapshot.lcd_message.as_str()),
             lcd_message_changed
+        );
+        update_projection!(
+            self,
+            lcd_feedback_active,
+            snapshot.lcd_feedback_active,
+            lcd_feedback_active_changed
         );
     }
 }

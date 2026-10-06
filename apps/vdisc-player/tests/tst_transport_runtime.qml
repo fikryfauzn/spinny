@@ -79,12 +79,16 @@ TestCase {
             fuzzyCompare(button.y, restY - 0.0006, 0.000001)
         verify(!app.controls.finishPress(button))
         compare(app.appliance.transportState, transport)
-        compare(app.appliance.lcdTrackNumber, track)
+        compare(app.appliance.lcdMessage, "Hold")
+        compare(app.appliance.lcdTrackNumber, -1)
         compare(app.appliance.lidState, "Closed")
         verify(app.appliance.lastRejection.length > 0)
         wait(120)
         fuzzyCompare(button.y, restY, 0.000001)
         fuzzyCompare(button.z, restZ, 0.000001)
+        verify(app.appliance.setHold(false))
+        compare(app.appliance.lcdTrackNumber, track)
+        compare(app.appliance.transportState, transport)
     }
     function test_empty_transport_rejected_data() {
         return ["PLAY", "PAUSE", "STOP", "PREVIOUS", "NEXT"].map(
