@@ -19,7 +19,7 @@ Window {
     readonly property alias audioRuntime: audioRuntime
     readonly property alias lcdFeedbackRuntime: lcdFeedbackRuntime
     readonly property alias lcdSurface: lcdSurface
-    readonly property alias audioTestControls: audioTestControls
+    property int inputRevision: 0
     readonly property alias openingAnimation: openingMotion
     readonly property alias closingAnimation: closingMotion
 
@@ -58,12 +58,14 @@ Window {
     Shortcut {
         sequence: "O"
         autoRepeat: false
+        enabled: controlSurface.inputActive
         onActivated: applianceBridge.requestOpen()
     }
 
     Shortcut {
         sequence: "C"
         autoRepeat: false
+        enabled: controlSurface.inputActive
         onActivated: applianceBridge.requestClose()
     }
 
@@ -148,6 +150,8 @@ Window {
         appliance: applianceBridge
         sceneRoot: greyboxScene
         windowActive: active
+        filePickerVisible: discDeck.filePickerVisible
+        inspectionRevision: inputRevision
     }
 
     Connections {
@@ -187,13 +191,18 @@ Window {
         filePickerVisible: discDeck.filePickerVisible
     }
 
-    AudioTestControls {
-        id: audioTestControls
-        anchors.left: sceneView.left
-        anchors.bottom: sceneView.bottom
-        anchors.margins: 16
-        appliance: applianceBridge
-        filePickerVisible: discDeck.filePickerVisible
+    Connections {
+        target: discInspection
+        function onCutawayEnabledChanged() { inputRevision++ }
+        function onLcdCloseupEnabledChanged() { inputRevision++ }
+    }
+    Connections {
+        target: sceneCamera
+        function onPositionChanged() { inputRevision++ }
+        function onEulerRotationChanged() { inputRevision++ }
+        function onFieldOfViewChanged() { inputRevision++ }
+        function onClipNearChanged() { inputRevision++ }
+        function onClipFarChanged() { inputRevision++ }
     }
 
     Text {

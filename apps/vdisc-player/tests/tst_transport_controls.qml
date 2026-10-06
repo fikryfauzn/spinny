@@ -16,6 +16,11 @@ TestCase {
             Model { objectName: "BTN_NEXT_TEST"; z: 0.073 }
             Model { objectName: "BTN_OPEN_TEST"; y: 0.0235 }
             Model { objectName: "DISC_TEST" }
+            Model { objectName: "BTN_MENU_TEST"; z: 0.073 }
+            Model { objectName: "HOLD_RAIL_TEST" }
+            Model { objectName: "HOLD_KNOB_TEST" }
+            Model { objectName: "VOLUME_RAIL_TEST" }
+            Model { objectName: "VOLUME_KNOB_TEST" }
         }
     }
     Component {
@@ -24,6 +29,19 @@ TestCase {
             property string lidState: "Closed"
             property var calls: []
             property bool accepted: true
+            property string transportState: "Stopped"
+            property bool holdEnabled: false
+            property real volume: 0.5
+            function inputTimeMs() { return Date.now() }
+            function requestMenuShort() { return record("MENU") }
+            function requestMenuLong() { return record("AVLS") }
+            function requestScanBegin(forward) {
+                record(forward ? "FORWARD" : "BACKWARD")
+                transportState = forward ? "SeekingForward" : "SeekingBackward"
+                return accepted
+            }
+            function requestScanRelative(delta) { return record(delta) }
+            function requestScanEnd() { transportState = "Playing"; return record("END") }
             function record(name) { calls = calls.concat([name]); return accepted }
             function requestPlay() { return record("PLAY") }
             function requestPause() { return record("PAUSE") }
@@ -47,7 +65,7 @@ TestCase {
         return {root: root, bridge: bridge, surface: surface}
     }
     function test_dispatch_once_on_release_data() {
-        return ["PLAY", "PAUSE", "STOP", "PREVIOUS", "NEXT", "OPEN"].map(
+        return ["PLAY", "PAUSE", "STOP", "PREVIOUS", "NEXT", "OPEN", "MENU"].map(
             function(name) { return {tag: name, name: name} })
     }
     function test_dispatch_once_on_release(data) {
@@ -117,6 +135,50 @@ TestCase {
         compare(s.bridge.calls.length, 0)
         wait(120)
         fuzzyCompare(button.y, 0.0235, 0.000001)
+    }
+    function test_input_loss_cancels_without_late_action_data() {
+        return [{tag:"focus", property:"windowActive", value:false},
+                {tag:"picker", property:"filePickerVisible", value:true},
+                {tag:"camera", property:"inspectionRevision", value:1}]
+    }
+    function test_input_loss_cancels_without_late_action(data) {
+        const s = setup()
+        const button = s.surface.buttonForName("BTN_MENU_TEST")
+        verify(s.surface.beginPress(button))
+        s.surface[data.property] = data.value
+        compare(s.surface.pressedName, "")
+        wait(650)
+        verify(!s.surface.finishPress(button))
+        compare(s.bridge.calls.length, 0)
+        fuzzyCompare(button.z, 0.073, 0.000001)
+    }
+    function test_scan_cancel_phases_data() {
+        const rows = []
+        for (const phase of ["pending", "menu", "scan"])
+            for (const reason of ["focus", "picker", "camera", "leave", "replacement"])
+                rows.push({tag:phase + "-" + reason, phase:phase, reason:reason})
+        return rows
+    }
+    function test_scan_cancel_phases(data) {
+        const s = setup()
+        let clock = 0
+        s.surface.gesture.nowMs = function() { return clock }
+        const button = s.surface.buttonForName(data.phase === "menu" ? "BTN_MENU_TEST" : "BTN_NEXT_TEST")
+        verify(s.surface.beginPress(button))
+        if (data.phase !== "pending") {
+            clock = 600
+            verify(s.surface.gesture.consumeLong())
+        }
+        if (data.reason === "focus") s.surface.windowActive = false
+        if (data.reason === "picker") s.surface.filePickerVisible = true
+        if (data.reason === "camera") s.surface.inspectionRevision++
+        if (data.reason === "leave") s.surface.cancelPress()
+        if (data.reason === "replacement") s.surface.sceneRoot = createTemporaryObject(sceneComponent, null)
+        compare(s.surface.pressedName, "")
+        verify(!s.surface.gesture.longTimer.running)
+        verify(!s.surface.gesture.scanTimer.running)
+        verify(!s.surface.finishPress(button))
+        compare(s.bridge.calls.join(","), data.phase === "scan" ? "FORWARD,END" : data.phase === "menu" ? "AVLS" : "")
     }
     function test_valid_scene_replacement_cancels_original_mesh_capture() {
         const s = setup()

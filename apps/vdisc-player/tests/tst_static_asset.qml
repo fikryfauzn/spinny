@@ -35,7 +35,8 @@ TestCase {
             const expected = ["PLAYER_ROOT", "BODY_TEST", "LID_ROOT", "LID_TEST",
                               "DISC_ROOT", "DISC_TEST", "SPINDLE_TEST", "BTN_PLAY_TEST",
                               "BTN_PAUSE_TEST", "BTN_STOP_TEST", "BTN_OPEN_TEST", "LCD_TEST",
-                              "BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"]
+                              "BTN_PREVIOUS_TEST", "BTN_NEXT_TEST", "BTN_MENU_TEST",
+                              "HOLD_RAIL_TEST", "HOLD_KNOB_TEST", "VOLUME_RAIL_TEST", "VOLUME_KNOB_TEST"]
             compare(Object.keys(names).sort().join(","), expected.sort().join(","))
             compare(names.LID_ROOT.parent, names.PLAYER_ROOT)
             compare(names.LID_TEST.parent, names.LID_ROOT)
@@ -51,6 +52,19 @@ TestCase {
             for (const name of ["BTN_PREVIOUS_TEST", "BTN_NEXT_TEST"]) {
                 fuzzyCompare(names[name].position.y, 0.013, 0.000001)
                 fuzzyCompare(names[name].position.z, 0.073, 0.000001)
+            }
+            const controls = [["BTN_MENU_TEST", 0.003, 0.073],
+                              ["HOLD_RAIL_TEST", 0.020, 0.073],
+                              ["HOLD_KNOB_TEST", 0.017, 0.0735],
+                              ["VOLUME_RAIL_TEST", 0.043, 0.073],
+                              ["VOLUME_KNOB_TEST", 0.043, 0.0735]]
+            for (const control of controls) {
+                const model = names[control[0]]
+                compare(model.parent, names.PLAYER_ROOT)
+                verify(model.source.toString().endsWith(".mesh"))
+                fuzzyCompare(model.position.x, control[1], 0.000001)
+                fuzzyCompare(model.position.y, 0.013, 0.000001)
+                fuzzyCompare(model.position.z, control[2], 0.000001)
             }
         } finally {
             app.destroy()

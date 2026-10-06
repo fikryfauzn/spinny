@@ -53,10 +53,11 @@ qt_add_qml_module(vdisc-player
         qml/LcdDisplay.qml
         qml/LcdSurface.qml
         qml/AudioRuntime.qml
-        qml/AudioTestControls.qml
         qml/DiscDeck.qml
         qml/DiscPlacement.js
         qml/ButtonTravel.qml
+        qml/ButtonGesture.qml
+        qml/RailControl.qml
         qml/ControlSurface.qml
         qml/DiscSpin.qml
         qml/DiscSpinPolicy.js

@@ -21,6 +21,7 @@ pub enum Command {
     ScanBegin(ScanDirection),
     ScanEnd,
     ScanStep(i64),
+    ScanRelative(i64),
     MenuShort,
     MenuLong,
     ToggleAvls,
@@ -136,6 +137,27 @@ impl<B: PlaybackBackend> ApplianceRuntime<B> {
                         &mut self.controller,
                         PlaybackPosition::from_millis(target_ms),
                     )
+                    .map_err(|e| self.reject(e, now))
+            }
+            Command::ScanRelative(delta_ms) => {
+                use vdisc_appliance::TransportState;
+                match (self.controller.transport_state(), delta_ms) {
+                    (TransportState::SeekingForward, 1..)
+                    | (TransportState::SeekingBackward, ..=-1) => (),
+                    _ => {
+                        return Err(
+                            "relative scan requires active scan in the requested direction".into(),
+                        );
+                    }
+                }
+                let target = crate::scan_target::relative_target(
+                    self.backend.position().as_millis(),
+                    self.backend.current_track_duration_ms(),
+                    delta_ms,
+                )
+                .map_err(str::to_owned)?;
+                self.backend
+                    .scan_seek(&mut self.controller, PlaybackPosition::from_millis(target))
                     .map_err(|e| self.reject(e, now))
             }
             Command::MenuShort => self

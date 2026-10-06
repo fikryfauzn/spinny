@@ -12,6 +12,8 @@ TestCase {
         verify(app !== null)
         verify(app.controls !== undefined)
         verify(app.controls.assetReady)
+        // The offscreen platform has no active native window. Policy tests inject focus.
+        app.controls.windowActive = true
         return app
     }
     function click(app, name) {
