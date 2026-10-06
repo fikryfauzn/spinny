@@ -114,7 +114,7 @@ fn next_ams_calls_backend_and_preserves_transport() {
 }
 
 #[test]
-fn previous_ams_restarts_current_track_when_position_is_nonzero() {
+fn previous_ams_restarts_current_track_after_restart_window() {
     let mut controller = controller();
     seat_and_close_disc(&mut controller);
     controller.request_play().unwrap();
@@ -129,6 +129,27 @@ fn previous_ams_restarts_current_track_when_position_is_nonzero() {
         vec![BackendCall::Seek(PlaybackPosition::from_millis(0))]
     );
     assert_eq!(controller.transport_state(), TransportState::Playing);
+}
+
+#[test]
+fn previous_ams_three_second_window_has_explicit_boundaries() {
+    for (position, expected) in [
+        (0, BackendCall::Previous),
+        (1, BackendCall::Previous),
+        (2_999, BackendCall::Previous),
+        (3_000, BackendCall::Seek(PlaybackPosition::from_millis(0))),
+        (3_001, BackendCall::Seek(PlaybackPosition::from_millis(0))),
+    ] {
+        let mut controller = controller();
+        seat_and_close_disc(&mut controller);
+        controller.request_play().unwrap();
+        let mut port = MockPort::default();
+        controller
+            .request_previous_with(&mut port, PlaybackPosition::from_millis(position))
+            .unwrap();
+        assert_eq!(port.calls, vec![expected], "position {position}");
+        assert_eq!(controller.transport_state(), TransportState::Playing);
+    }
 }
 
 #[test]

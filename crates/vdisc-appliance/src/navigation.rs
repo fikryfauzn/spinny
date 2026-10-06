@@ -66,9 +66,9 @@ impl De200Controller {
 
     /// Execute short PREVIOUS using the explicit VDISC AMS rule.
     ///
-    /// No undocumented Sony timing threshold is invented:
-    /// - position > 0 ms: restart the current track at 0;
-    /// - position == 0 ms: move to the previous track.
+    /// VDISC usability policy (not a claimed Sony hardware threshold):
+    /// - position < 3000 ms: move to the previous track;
+    /// - position >= 3000 ms: restart the current track at 0.
     ///
     /// Live position remains backend-owned and is supplied at the adapter
     /// boundary. Successful navigation clears old stop-resume memory.
@@ -82,7 +82,7 @@ impl De200Controller {
     {
         self.validate_ams_request(NavigationAction::Previous)?;
 
-        if current_position.as_millis() == 0 {
+        if current_position.as_millis() < 3_000 {
             port.previous_track().map_err(NavigationError::Backend)?;
         } else {
             port.seek(PlaybackPosition::from_millis(0))

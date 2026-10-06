@@ -29,7 +29,6 @@ TestCase {
         verify(a.requestPause()); verify(a.requestNext())
         compare(d.primaryText,"02  00:00")
         audioTestDriver.setPosition(1234); tryCompare(a,"lcdElapsedMs",1234,500)
-        verify(a.requestPrevious()); compare(d.primaryText,"02  00:00")
         verify(a.requestPrevious()); compare(d.primaryText,"01  00:00")
         audioTestDriver.setPosition(1234); tryCompare(a,"lcdElapsedMs",1234,500)
         verify(a.requestStop()); compare(d.primaryText,"02  00:04")

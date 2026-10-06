@@ -130,7 +130,9 @@ fn transport_navigation_menu_and_scan_use_existing_machine() {
     );
     runtime.execute(Command::ScanStep(1)).unwrap();
     runtime.execute(Command::ScanEnd).unwrap();
-    runtime.execute(Command::Previous).unwrap();
+    // Within the restart window, PREVIOUS attempts the prior track and
+    // preserves the existing non-wrapping start-of-disc boundary.
+    assert!(runtime.execute(Command::Previous).is_err());
     assert!(runtime.execute(Command::Next).is_err());
     assert_eq!(
         runtime.controller().transport_state(),
