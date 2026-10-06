@@ -1,5 +1,6 @@
 #[cfg(feature = "qml")]
 mod audio_backend;
+mod lcd_feedback;
 mod projection;
 #[cfg(feature = "qml")]
 mod qobject;

@@ -7,12 +7,23 @@ Item {
     required property var discModel
     required property bool windowActive
     required property bool filePickerVisible
+    property var camera: null
     property bool cutawayEnabled: false
+    property bool lcdCloseupEnabled: false
     readonly property var lidModel: resolveLid()
     readonly property bool assetReady: isLiveModel(lidModel)
     readonly property string assetError: assetReady ? "" : "Inspection asset contract failure"
     readonly property alias marker: witness
     readonly property alias shortcut: cutawayShortcut
+    readonly property var lcdModel: resolveLcd()
+    readonly property bool lcdViewReady: camera instanceof PerspectiveCamera && isLiveModel(lcdModel)
+    readonly property alias lcdShortcut: lcdShortcut
+    readonly property alias closeupButton: closeupButton
+    readonly property vector3d lcdTarget: {
+        if (!lcdViewReady)
+            return Qt.vector3d(0, 0, 0)
+        return lcdModel.sceneTransform.times(Qt.vector3d(0, 0.00015, 0))
+    }
 
     function isLiveModel(object) {
         try { return !!object && object instanceof Model }
@@ -48,8 +59,42 @@ Item {
         cutawayEnabled = !cutawayEnabled
         return true
     }
+    function resolveLcd() {
+        try {
+            const root = unique(sceneRoot, "PLAYER_ROOT")
+            const model = unique(sceneRoot, "LCD_TEST")
+            return root instanceof Node && !(root instanceof Model)
+                && isLiveModel(model) && model.parent === root ? model : null
+        } catch (error) { return null }
+    }
+    function toggleLcdCloseup() {
+        if (!lcdViewReady || !windowActive || filePickerVisible)
+            return false
+        lcdCloseupEnabled = !lcdCloseupEnabled
+        return true
+    }
+    onLcdViewReadyChanged: { if (!lcdViewReady) lcdCloseupEnabled = false }
     // Disabling the override before Binding destruction restores its saved value/binding.
-    Component.onDestruction: cutawayEnabled = false
+    Component.onDestruction: { cutawayEnabled = false; lcdCloseupEnabled = false }
+
+    Binding {
+        target: inspection.camera
+        property: "position"
+        value: Qt.vector3d(inspection.lcdTarget.x, inspection.lcdTarget.y + 8, inspection.lcdTarget.z + 6)
+        when: inspection.lcdViewReady && inspection.lcdCloseupEnabled
+    }
+    Binding {
+        target: inspection.camera
+        property: "eulerRotation"
+        value: Qt.vector3d(-53.130102, 0, 0)
+        when: inspection.lcdViewReady && inspection.lcdCloseupEnabled
+    }
+    Binding {
+        target: inspection.camera
+        property: "fieldOfView"
+        value: 40
+        when: inspection.lcdViewReady && inspection.lcdCloseupEnabled
+    }
 
     Model {
         id: witness
@@ -77,6 +122,34 @@ Item {
         autoRepeat: false
         enabled: inspection.assetReady && inspection.windowActive && !inspection.filePickerVisible
         onActivated: inspection.toggleCutaway()
+    }
+    Shortcut {
+        id: lcdShortcut
+        sequence: "L"
+        autoRepeat: false
+        enabled: inspection.lcdViewReady && inspection.windowActive && !inspection.filePickerVisible
+        onActivated: inspection.toggleLcdCloseup()
+    }
+    Rectangle {
+        id: closeupButton
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: 62
+        anchors.rightMargin: 16
+        width: 170; height: 38; radius: 5
+        color: inspection.lcdCloseupEnabled ? "#506879" : "#35414c"
+        border.color: "#a8b9c5"
+        opacity: inspection.lcdViewReady ? 1 : 0.5
+        Text {
+            anchors.centerIn: parent
+            color: "white"
+            text: "LCD close-up [L]: " + (inspection.lcdCloseupEnabled ? "ON" : "OFF")
+        }
+        MouseArea {
+            anchors.fill: parent
+            enabled: inspection.lcdViewReady && !inspection.filePickerVisible
+            onClicked: inspection.toggleLcdCloseup()
+        }
     }
     Rectangle {
         anchors.top: parent.top

@@ -30,6 +30,7 @@ fn initial_projection_has_stable_states_and_empty_lcd_facts() {
     assert_eq!(snapshot.lcd_total_ms, -1);
     assert_eq!(snapshot.lcd_playback_status, "Stopped");
     assert_eq!(snapshot.lcd_message, "");
+    assert!(!snapshot.lcd_feedback_active);
 }
 
 #[test]

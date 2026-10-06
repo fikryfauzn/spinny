@@ -49,6 +49,9 @@ qt_add_qml_module(vdisc-player
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/LcdFeedbackRuntime.qml
+        qml/LcdDisplay.qml
+        qml/LcdSurface.qml
         qml/AudioRuntime.qml
         qml/AudioTestControls.qml
         qml/DiscDeck.qml

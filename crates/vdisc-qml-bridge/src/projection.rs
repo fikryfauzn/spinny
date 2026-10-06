@@ -25,12 +25,16 @@ pub struct ApplianceSnapshot {
     pub lcd_avls: bool,
     pub lcd_playback_status: String,
     pub lcd_message: String,
+    pub lcd_feedback_active: bool,
 }
 
 impl<B: vdisc_core::PlaybackBackend> ApplianceRuntime<B> {
     pub fn snapshot(&self) -> ApplianceSnapshot {
+        self.snapshot_at(std::time::Instant::now())
+    }
+    pub(crate) fn snapshot_at(&self, now: std::time::Instant) -> ApplianceSnapshot {
         let controller = &self.controller;
-        let lcd = controller.lcd_snapshot(self.backend.lcd_facts(), None);
+        let lcd = controller.lcd_snapshot(self.backend.lcd_facts(), self.feedback.transient(now));
         ApplianceSnapshot {
             lid_state: lid_state(controller.lid_state()).into(),
             disc_state: disc_state(controller.disc_state()).into(),
@@ -54,6 +58,7 @@ impl<B: vdisc_core::PlaybackBackend> ApplianceRuntime<B> {
             lcd_avls: lcd.avls_indicator(),
             lcd_playback_status: lcd_status(lcd.playback_status()).into(),
             lcd_message: lcd.message().map(lcd_message).unwrap_or("").into(),
+            lcd_feedback_active: self.feedback.active(now),
         }
     }
 }
