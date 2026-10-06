@@ -121,14 +121,15 @@ fn navigation_preserves_each_transport_and_rejects_boundaries_without_stream_eff
 }
 
 #[test]
-fn previous_live_or_saved_position_restarts_and_scan_replaces_at_target() {
+fn previous_live_or_saved_position_in_restart_window_moves_back() {
     let (mut c, mut b, backend) = seated();
     b.play(&mut c).unwrap();
     b.next(&mut c).unwrap();
     backend.current().lock().unwrap().position = 7;
     b.previous(&mut c).unwrap();
-    assert_eq!(b.current_track_index(), Some(1));
+    assert_eq!(b.current_track_index(), Some(0));
     assert_eq!(b.position().as_millis(), 0);
+    b.next(&mut c).unwrap();
     c.request_scan_begin(ScanDirection::Forward).unwrap();
     b.scan_seek(&mut c, PlaybackPosition::from_millis(7))
         .unwrap();
@@ -139,7 +140,7 @@ fn previous_live_or_saved_position_restarts_and_scan_replaces_at_target() {
     b.previous(&mut c).unwrap();
     assert_eq!(backend.operations(), before);
     assert_eq!(c.resume_position(), None);
-    assert_eq!(b.current_track_index(), Some(1));
+    assert_eq!(b.current_track_index(), Some(0));
     assert_eq!(backend.0.lock().unwrap().max_active, 1);
 }
 
