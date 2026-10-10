@@ -58,10 +58,22 @@ TestCase {
             const projected = exposedPoint(model)
             compare(surface.hitAt(projected.x, projected.y), model, "Close-up picking " + name)
         }
+        app.requestActivate()
+        tryCompare(app, "active", true, 1000)
+        p = point(menu)
         mousePress(surface, p.x, p.y)
+        compare(surface.captureKind, "Button", "Escape test must begin with an active capture")
+        compare(surface.pressedName, "BTN_MENU_TEST")
+        verify(surface.gesture.held)
+        verify(surface.gesture.longTimer.running)
         keyClick(Qt.Key_Escape)
+        compare(surface.captureKind, "", "Escape cancels capture before pointer release")
+        verify(!surface.gesture.held)
+        verify(!surface.gesture.longTimer.running)
+        verify(!surface.gesture.scanTimer.running)
         mouseRelease(surface, p.x, p.y)
         verify(!app.appliance.avlsEnabled)
+        compare(app.appliance.playMode, "Normal", "Canceled MENU must not dispatch on release")
         compare(surface.captureKind, "")
     }
 }
