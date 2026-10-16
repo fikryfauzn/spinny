@@ -8,6 +8,11 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
             .validate_play_request()
             .map_err(CoreIntegrationError::from)?;
         self.ensure_transport_sync(controller)?;
+        if let Some(index) = self.current_track_index()
+            && !self.playback_track_ready(controller, index)?
+        {
+            return Err(AudioIntegrationError::VerificationPending);
+        }
         let gain = self.application_gain(controller);
         let result = controller.request_play_with(&mut AudioPort { bridge: self, gain });
         match result {
@@ -64,6 +69,12 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
             .validate_ams_request(NavigationAction::Next)
             .map_err(CoreIntegrationError::from)?;
         self.ensure_transport_sync(controller)?;
+        if let Some(current) = self.current_track_index()
+            && current + 1 < self.track_count()
+            && !self.playback_track_ready(controller, current + 1)?
+        {
+            return Err(AudioIntegrationError::VerificationPending);
+        }
         let gain = self.application_gain(controller);
         let result = controller.request_next_with(&mut AudioPort { bridge: self, gain });
         self.finish_navigation(controller, result)
@@ -84,6 +95,15 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
         } else {
             self.position()
         };
+        // AMS PREVIOUS restarts the current track at >= 3 seconds. Only
+        // a true previous-track request requires that track's readiness.
+        if position.as_millis() < 3_000
+            && let Some(current) = self.current_track_index()
+            && current > 0
+            && !self.playback_track_ready(controller, current - 1)?
+        {
+            return Err(AudioIntegrationError::VerificationPending);
+        }
         let gain = self.application_gain(controller);
         let result =
             controller.request_previous_with(&mut AudioPort { bridge: self, gain }, position);

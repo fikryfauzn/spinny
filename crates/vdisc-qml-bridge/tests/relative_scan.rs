@@ -1,9 +1,21 @@
 #[path = "../../vdisc-appliance/tests/support/audio_backend.rs"]
 mod audio;
 use audio::{AudioBackend, Operation};
+use std::time::{Duration, Instant};
 use vdisc_appliance::{ScanDirection, TransportState};
 use vdisc_core::{PlaybackBackendEvent, PlaybackError};
 use vdisc_qml_bridge::{ApplianceRuntime, Command};
+
+fn await_validation(runtime: &mut ApplianceRuntime<AudioBackend>) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(result) = runtime.poll_insertion() {
+            return result;
+        }
+        assert!(Instant::now() < deadline, "disc validation timed out");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
 
 fn seated() -> (ApplianceRuntime<AudioBackend>, AudioBackend) {
     let backend = AudioBackend::default();
@@ -19,10 +31,11 @@ fn seated() -> (ApplianceRuntime<AudioBackend>, AudioBackend) {
             .into(),
         ),
         Command::DiscInserted,
-        Command::Close,
-        Command::LidClosed,
-        Command::Play,
     ] {
+        runtime.execute(command).unwrap();
+    }
+    await_validation(&mut runtime).unwrap();
+    for command in [Command::Close, Command::LidClosed, Command::Play] {
         runtime.execute(command).unwrap();
     }
     (runtime, backend)
@@ -109,6 +122,19 @@ fn command_time_eof_ends_scan_before_any_new_track_seek() {
         b.queue(PlaybackBackendEvent::TrackFinished);
         assert!(r.execute(Command::ScanRelative(1_600)).is_err());
         assert_eq!(r.controller().transport_state(), TransportState::Playing);
+        // Normal/RepeatAll EOF can remain pending until track 2 is verified.
+        // Keep the event loop responsive; do not expect synchronous advancement.
+        if mode != 3 {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while r.backend().current_track_index() != Some(1) {
+                assert!(
+                    Instant::now() < deadline,
+                    "pending EOF did not advance after background verification"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+                r.poll_backend().unwrap();
+            }
+        }
         assert_eq!(r.backend().position().as_millis(), 0);
         assert_eq!(
             r.backend().current_track_index(),
@@ -119,7 +145,19 @@ fn command_time_eof_ends_scan_before_any_new_track_seek() {
         assert_eq!(b.operations(), before);
     }
     let (mut r, b) = seated();
-    r.execute(Command::Next).unwrap();
+    // NEXT must reject promptly until track 2 has been fully verified.
+    // Retry in this test only, with a bounded deadline.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match r.execute(Command::Next) {
+            Ok(()) => break,
+            Err(error) if error.contains("still verifying") => {
+                assert!(Instant::now() < deadline, "NEXT never became ready");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("unexpected NEXT rejection: {error}"),
+        }
+    }
     r.execute(Command::ScanBegin(ScanDirection::Forward))
         .unwrap();
     b.queue(PlaybackBackendEvent::TrackFinished);

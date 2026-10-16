@@ -48,12 +48,17 @@ pub mod ffi {
             NOTIFY,
             cxx_name = "lcdFeedbackActive"
         )]
+        #[qproperty(bool, insertion_pending, READ, NOTIFY, cxx_name = "insertionPending")]
         #[qproperty(QString, last_rejection, READ, NOTIFY, cxx_name = "lastRejection")]
         type ApplianceBridge = super::ApplianceBridgeRust;
 
         #[qinvokable]
         #[cxx_name = "pollBackend"]
         fn poll_backend(self: Pin<&mut Self>) -> bool;
+
+        #[qinvokable]
+        #[cxx_name = "pollInsertion"]
+        fn poll_insertion(self: Pin<&mut Self>) -> bool;
 
         #[qinvokable]
         #[cxx_name = "refreshLcdFeedback"]
@@ -175,6 +180,7 @@ pub struct ApplianceBridgeRust {
     lcd_message: QString,
     lcd_feedback_active: bool,
     last_rejection: QString,
+    insertion_pending: bool,
 }
 
 impl Default for ApplianceBridgeRust {
@@ -203,6 +209,7 @@ impl Default for ApplianceBridgeRust {
             lcd_message: QString::from(snapshot.lcd_message.as_str()),
             lcd_feedback_active: snapshot.lcd_feedback_active,
             last_rejection: QString::default(),
+            insertion_pending: false,
         }
     }
 }
@@ -218,6 +225,21 @@ macro_rules! update_projection {
 }
 
 impl ffi::ApplianceBridge {
+    pub fn poll_insertion(mut self: Pin<&mut Self>) -> bool {
+        let result = self.as_mut().rust_mut().runtime.poll_insertion();
+        let snapshot = self.as_ref().rust().runtime.snapshot();
+        self.as_mut().refresh(snapshot);
+        if let Some(Err(message)) = &result {
+            update_projection!(
+                self,
+                last_rejection,
+                QString::from(message.as_str()),
+                last_rejection_changed
+            );
+        }
+        result.is_some()
+    }
+
     pub fn refresh_lcd_feedback(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().runtime.refresh_lcd_feedback();
         let snapshot = self.as_ref().rust().runtime.snapshot();
@@ -348,6 +370,8 @@ impl ffi::ApplianceBridge {
     }
 
     fn refresh(mut self: Pin<&mut Self>, snapshot: ApplianceSnapshot) {
+        let pending = self.as_ref().rust().runtime.insertion_pending();
+        update_projection!(self, insertion_pending, pending, insertion_pending_changed);
         update_projection!(
             self,
             lid_state,

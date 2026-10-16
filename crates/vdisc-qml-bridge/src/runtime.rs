@@ -1,11 +1,16 @@
 use crate::lcd_feedback::LcdFeedback;
 use std::path::PathBuf;
-use std::{error::Error, time::Instant};
+use std::{
+    error::Error,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    time::Instant,
+};
 
 use vdisc_appliance::{
-    AudioPlayerBridge, De200Controller, DiscState, PlaybackPosition, ScanDirection, Volume,
+    AudioPlayerBridge, De200Controller, DiscFailureClass, DiscState, PlaybackPosition,
+    ScanDirection, Volume, classify_format_error,
 };
-use vdisc_core::{CpalBackend, PlaybackBackend};
+use vdisc_core::{BurnedDisc, CpalBackend, PlaybackBackend, format::FormatError};
 
 #[derive(Debug)]
 pub enum Command {
@@ -38,6 +43,9 @@ pub struct ApplianceRuntime<B: PlaybackBackend = CpalBackend> {
     pub(crate) controller: De200Controller,
     pub(crate) backend: AudioPlayerBridge<B>,
     pub(crate) feedback: LcdFeedback,
+    pending_validation: Option<Receiver<Result<BurnedDisc, FormatError>>>,
+    insertion_motion_complete: bool,
+    validation_started_at: Option<Instant>,
 }
 
 impl ApplianceRuntime<CpalBackend> {
@@ -52,7 +60,72 @@ impl<B: PlaybackBackend> ApplianceRuntime<B> {
             controller: De200Controller::new(Volume::new(0.5).expect("valid initial volume")),
             backend: AudioPlayerBridge::with_backend(backend),
             feedback: LcdFeedback::default(),
+            pending_validation: None,
+            insertion_motion_complete: false,
+            validation_started_at: None,
         }
+    }
+
+    /// True while a single background validator still owns the insertion.
+    pub fn insertion_pending(&self) -> bool {
+        self.pending_validation.is_some()
+    }
+
+    /// Collect the worker result on the Qt-owning thread, never on the worker.
+    /// None means the worker is still running or no insertion is active.
+    pub fn poll_insertion(&mut self) -> Option<Result<(), String>> {
+        let result = match self.pending_validation.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
+                self.pending_validation = None;
+                self.validation_started_at = None;
+                let _ = self
+                    .controller
+                    .notify_disc_validation_failed(DiscFailureClass::ResourceFailure);
+                self.insertion_motion_complete = false;
+                return Some(Err("disc validation worker terminated unexpectedly".into()));
+            }
+        };
+        self.pending_validation = None;
+        if let Some(start) = self.validation_started_at.take()
+            && std::env::var_os("VDISC_TIMING").is_some()
+        {
+            eprintln!(
+                "vdisc: first-track verified mount took {} ms",
+                start.elapsed().as_millis()
+            );
+        }
+        let outcome = match result {
+            Ok(disc) => {
+                let accepted = self
+                    .backend
+                    .accept_validated_disc(&mut self.controller, disc)
+                    .map_err(|error| error.to_string());
+                if accepted.is_ok() && self.insertion_motion_complete {
+                    self.controller
+                        .notify_disc_seated()
+                        .map_err(|error| error.to_string())
+                } else {
+                    accepted
+                }
+            }
+            Err(error) => {
+                let result = self
+                    .controller
+                    .notify_disc_validation_failed(classify_format_error(&error))
+                    .map_err(|transition| transition.to_string());
+                result.and(Err(format!("disc verification failed: {error}")))
+            }
+        };
+        if outcome.is_err() {
+            // Fail closed if an adapter error left the handshake unfinished.
+            if self.controller.disc_state() == DiscState::Inserting {
+                let _ = self.controller.notify_disc_validation_rejected();
+            }
+            self.insertion_motion_complete = false;
+        }
+        Some(outcome)
     }
 
     pub fn controller(&self) -> &De200Controller {
@@ -86,16 +159,25 @@ impl<B: PlaybackBackend> ApplianceRuntime<B> {
                 self.controller
                     .request_disc_insert()
                     .map_err(|e| self.reject(e, now))?;
-                let result = self
-                    .backend
-                    .validate_inserting_disc(&mut self.controller, path)
-                    .map_err(|e| self.reject(e, now));
-                if result.is_err() && self.controller.disc_state() == DiscState::Inserting {
-                    self.controller
-                        .notify_disc_validation_rejected()
-                        .map_err(|e| e.to_string())?;
+                let (sender, receiver) = mpsc::channel();
+                // One insertion is permitted by the controller's Absent guard.
+                // The worker only produces a verified handle; it never mutates Qt.
+                let spawned = std::thread::Builder::new()
+                    .name("vdisc-disc-validation".into())
+                    .spawn(move || {
+                        let result = BurnedDisc::open_for_playback(&path);
+                        let _ = sender.send(result);
+                    });
+                if let Err(error) = spawned {
+                    let _ = self
+                        .controller
+                        .notify_disc_validation_failed(DiscFailureClass::ResourceFailure);
+                    return Err(format!("could not start disc validation: {error}"));
                 }
-                result
+                self.pending_validation = Some(receiver);
+                self.insertion_motion_complete = false;
+                self.validation_started_at = Some(Instant::now());
+                Ok(())
             }
             Command::Remove => self
                 .controller
@@ -195,10 +277,23 @@ impl<B: PlaybackBackend> ApplianceRuntime<B> {
                 .controller
                 .notify_lid_closed()
                 .map_err(|e| e.to_string()),
-            Command::DiscInserted => self
-                .controller
-                .notify_disc_seated()
-                .map_err(|e| e.to_string()),
+            Command::DiscInserted => {
+                if self.controller.disc_state() != DiscState::Inserting
+                    || self.insertion_motion_complete
+                {
+                    return Err("disc insertion animation is not pending".into());
+                }
+                self.insertion_motion_complete = true;
+                // Visual completion can precede validation. Seat only when both
+                // have completed, retaining the original appliance invariant.
+                if self.pending_validation.is_some() {
+                    Ok(())
+                } else {
+                    self.controller
+                        .notify_disc_seated()
+                        .map_err(|e| e.to_string())
+                }
+            }
             Command::DiscRemoved => self
                 .backend
                 .complete_disc_removal(&mut self.controller)

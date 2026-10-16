@@ -21,6 +21,7 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
     path::Path,
+    sync::atomic::{AtomicBool, Ordering},
 };
 use zip::Entry;
 
@@ -73,10 +74,50 @@ pub(crate) fn validate_open_file(file: &File) -> FormatResult<ValidatedArchive> 
     // reader payload access uses positioned I/O and does not depend on this
     // shared cursor afterwards.
     let mut reader = file.try_clone()?;
-    validate_file(&mut reader)
+    validate_file(&mut reader, false, None)
 }
 
-fn validate_file(file: &mut File) -> FormatResult<ValidatedArchive> {
+/// Fast playback mount: index and check the complete manifest/integrity inventory,
+/// hash and media-probe track one, and validate artwork. Other tracks remain
+/// untrusted until the full validator completes on a background worker.
+/// Does not replace or weaken validate_open_file().
+pub(crate) fn validate_first_track_open_file(file: &File) -> FormatResult<ValidatedArchive> {
+    if !file.metadata()?.is_file() {
+        return Err(FormatError::new(K::Io, "VDISC must be a regular file"));
+    }
+    let mut reader = file.try_clone()?;
+    validate_file(&mut reader, true, None)
+}
+
+/// Cancel-aware variant used only by the background playback worker. Strict
+/// callers keep using validate_open_file without cancellation.
+pub(crate) fn validate_open_file_with_cancel(
+    file: &File,
+    cancellation: &AtomicBool,
+) -> FormatResult<ValidatedArchive> {
+    if !file.metadata()?.is_file() {
+        return Err(FormatError::new(K::Io, "VDISC must be a regular file"));
+    }
+    let mut reader = file.try_clone()?;
+    validate_file(&mut reader, false, Some(cancellation))
+}
+
+fn check_cancellation(cancellation: Option<&AtomicBool>) -> FormatResult<()> {
+    if cancellation.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+        return Err(FormatError::new(
+            K::ResourceLimit,
+            "background verification cancelled after disc removal",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_file(
+    file: &mut File,
+    first_track_only: bool,
+    cancellation: Option<&AtomicBool>,
+) -> FormatResult<ValidatedArchive> {
+    check_cancellation(cancellation)?;
     let entries = zip::index(file)?;
     let index: BTreeMap<&str, &Entry> = entries.iter().map(|e| (e.name.as_str(), e)).collect();
     let get = |name: &str| {
@@ -134,6 +175,7 @@ fn validate_file(file: &mut File) -> FormatResult<ValidatedArchive> {
         );
     }
     for name in &covered {
+        check_cancellation(cancellation)?;
         let entry = get(name)?;
         let record = records[name];
         if record.size_bytes != entry.size {
@@ -143,11 +185,28 @@ fn validate_file(file: &mut File) -> FormatResult<ValidatedArchive> {
             )
             .at(name));
         }
-        let hash = hash_entry(file, entry)?;
-        if hash != record.sha256 {
-            return Err(FormatError::new(K::IntegrityMismatch, "SHA-256 mismatch").at(name));
+        // Fast mount hashes every non-audio entry and only the first track.
+        // Crucially, CRC, size, schema and local-header checks still apply to
+        // the *entire* archive index. No other track bytes are trusted here.
+        let required_now = !first_track_only
+            || *name == "manifest.json"
+            || manifest
+                .tracks
+                .first()
+                .is_some_and(|track| track.path == *name)
+            || manifest
+                .appearance
+                .image
+                .as_ref()
+                .is_some_and(|image| image.path == *name);
+        if required_now {
+            let hash = hash_entry(file, entry, cancellation)?;
+            if hash != record.sha256 {
+                return Err(FormatError::new(K::IntegrityMismatch, "SHA-256 mismatch").at(name));
+            }
         }
     }
+    check_cancellation(cancellation)?;
     if let Some(image) = &manifest.appearance.image {
         let bytes = read_small(file, get(&image.path)?, MAX_ARTWORK_BYTES)?;
         let actual = inspect_artwork(&bytes).map_err(|e| e.at(&image.path))?;
@@ -162,10 +221,16 @@ fn validate_file(file: &mut File) -> FormatResult<ValidatedArchive> {
             .at(&image.path));
         }
     }
-    for track in &manifest.tracks {
+    for track in manifest
+        .tracks
+        .iter()
+        .take(if first_track_only { 1 } else { usize::MAX })
+    {
+        check_cancellation(cancellation)?;
         media::validate_audio(file, get(&track.path)?, track)?;
     }
 
+    check_cancellation(cancellation)?;
     let payloads = entries
         .iter()
         .map(|entry| {
@@ -207,13 +272,19 @@ fn read_small(file: &mut File, entry: &Entry, limit: u64) -> FormatResult<Vec<u8
     Ok(bytes)
 }
 
-fn hash_entry(file: &mut File, entry: &Entry) -> FormatResult<String> {
+fn hash_entry(
+    file: &mut File,
+    entry: &Entry,
+    cancellation: Option<&AtomicBool>,
+) -> FormatResult<String> {
+    check_cancellation(cancellation)?;
     file.seek(SeekFrom::Start(entry.data))?;
     let mut remaining = entry.size;
     let mut buffer = [0; 64 * 1024];
     let mut sha = Sha256::new();
     let mut crc = u32::MAX;
     while remaining != 0 {
+        check_cancellation(cancellation)?;
         let count = remaining.min(buffer.len() as u64) as usize;
         file.read_exact(&mut buffer[..count])?;
         sha.update(&buffer[..count]);

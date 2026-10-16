@@ -5,7 +5,7 @@ use crate::{
 };
 use std::{error::Error, fmt, path::Path};
 use vdisc_core::{
-    PlaybackBackend, PlaybackError, PlaybackSession, Player, PlayerError, PlayerState,
+    BurnedDisc, PlaybackBackend, PlaybackError, PlaybackSession, Player, PlayerError, PlayerState,
 };
 
 mod events;
@@ -17,6 +17,7 @@ pub struct AudioPlayerBridge<B: PlaybackBackend> {
     backend: B,
     session: Option<B::Session>,
     pending_eof: bool,
+    verification_failure_reported: bool,
     rng: fastrand::Rng,
 }
 
@@ -26,6 +27,7 @@ pub enum AudioIntegrationError {
     Resume(ResumePlayError<PlaybackError>),
     Navigation(NavigationError<PlaybackError>),
     Playback(PlaybackError),
+    VerificationPending,
 }
 impl fmt::Display for AudioIntegrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -34,17 +36,19 @@ impl fmt::Display for AudioIntegrationError {
             Self::Resume(e) => e.fmt(f),
             Self::Navigation(e) => e.fmt(f),
             Self::Playback(e) => e.fmt(f),
+            Self::VerificationPending => write!(f, "requested track is still verifying"),
         }
     }
 }
 impl Error for AudioIntegrationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(match self {
-            Self::Policy(e) => e,
-            Self::Resume(e) => e,
-            Self::Navigation(e) => e,
-            Self::Playback(e) => e,
-        })
+        match self {
+            Self::Policy(e) => Some(e as &(dyn Error + 'static)),
+            Self::Resume(e) => Some(e as &(dyn Error + 'static)),
+            Self::Navigation(e) => Some(e as &(dyn Error + 'static)),
+            Self::Playback(e) => Some(e as &(dyn Error + 'static)),
+            Self::VerificationPending => None,
+        }
     }
 }
 impl From<CoreIntegrationError> for AudioIntegrationError {
@@ -60,6 +64,7 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
             backend,
             session: None,
             pending_eof: false,
+            verification_failure_reported: false,
             rng: fastrand::Rng::new(),
         }
     }
@@ -126,6 +131,7 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
         }
         match self.player.insert(path) {
             Ok(()) => {
+                self.verification_failure_reported = false;
                 controller
                     .notify_disc_validation_accepted()
                     .map_err(CoreIntegrationError::from)?;
@@ -144,6 +150,31 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
             }
         }
     }
+    /// Commit a disc verified on a worker thread. The GUI thread owns the
+    /// player/controller mutation, and this must not revalidate the archive.
+    pub fn accept_validated_disc(
+        &mut self,
+        controller: &mut De200Controller,
+        disc: BurnedDisc,
+    ) -> Result<(), AudioIntegrationError> {
+        if controller.lid_state() != LidState::Open
+            || controller.disc_state() != DiscState::Inserting
+            || self.player.state() != PlayerState::Empty
+        {
+            return Err(self.mechanical_error(controller));
+        }
+        self.player.insert_validated(disc).map_err(|error| {
+            controller.report_playback_failure(classify_player_error(&error));
+            AudioIntegrationError::Playback(error.into())
+        })?;
+        self.verification_failure_reported = false;
+        controller
+            .notify_disc_validation_accepted()
+            .map_err(CoreIntegrationError::from)?;
+        controller.clear_error_state();
+        Ok(())
+    }
+
     pub fn complete_disc_removal(
         &mut self,
         controller: &mut De200Controller,
@@ -156,15 +187,38 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
             return Err(self.mechanical_error(controller));
         }
         self.retire_session();
+        // The retired verifier owns only a pinned file descriptor and a
+        // cancellation flag. It cannot report into the next disc session.
+        if let Some(disc) = self.player.disc() {
+            disc.cancel_background_verification();
+        }
         if let Err(error) = self.player.eject() {
             return Err(self.fail_backend(controller, error.into()));
         }
+        self.verification_failure_reported = false;
         controller
             .notify_disc_removed()
             .map_err(CoreIntegrationError::from)?;
         controller.clear_error_state();
         Ok(())
     }
+    /// Prevent Qt navigation from waiting on a background SHA-256 pass.
+    /// A pending track is a controlled user rejection, not a machine failure.
+    /// A completed, failed validation is a real disc failure.
+    fn playback_track_ready(
+        &mut self,
+        controller: &mut De200Controller,
+        index: usize,
+    ) -> Result<bool, AudioIntegrationError> {
+        let disc = self.player.disc().ok_or(AudioIntegrationError::Playback(
+            PlaybackError::BackendInvariant("track readiness requested without an inserted disc"),
+        ))?;
+        match disc.playback_track_ready(index) {
+            Ok(ready) => Ok(ready),
+            Err(error) => Err(self.fail_backend(controller, PlaybackError::Disc(error))),
+        }
+    }
+
     fn mechanical_error(&self, controller: &De200Controller) -> AudioIntegrationError {
         CoreIntegrationError::MechanicalDesynchronized {
             lid: controller.lid_state(),

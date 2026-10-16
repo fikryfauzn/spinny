@@ -4,7 +4,11 @@ use std::{
     io::{self, Read, Seek, SeekFrom},
     os::unix::fs::FileExt,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
 };
 
 use crate::format::{
@@ -14,7 +18,9 @@ use crate::format::{
 
 /// The supported read-only consumer view of a finalized VDISC.
 ///
-/// Opening performs full VDISC validation before this value is returned. The
+/// The default `open()` performs full VDISC validation before returning.
+/// `open_for_playback()` intentionally differs: it verifies track 0 and
+/// structural metadata first, with full integrity verified in the background. The
 /// file descriptor remains open for the lifetime of the value, so replacing
 /// the pathname later does not switch payload access to another file.
 ///
@@ -28,6 +34,36 @@ pub struct BurnedDisc {
     file: Arc<File>,
     validated: ValidatedFormat,
     payloads: BTreeMap<String, PayloadLocation>,
+    /// None for strict fully-validated discs. Some for an explicit playback
+    /// mount where only track 0 has passed integrity and media checks at open.
+    deferred_validation: Option<Arc<DeferredValidation>>,
+}
+
+#[derive(Debug)]
+struct DeferredValidation {
+    result: Mutex<Option<FormatResult<()>>>,
+    cancelled: AtomicBool,
+}
+
+impl DeferredValidation {
+    fn inspect(&self, wait_for_full: bool) -> FormatResult<()> {
+        let result = self.result.lock().unwrap_or_else(|e| e.into_inner());
+        if wait_for_full && result.is_none() {
+            return Err(FormatError::new(
+                FormatErrorKind::ResourceLimit,
+                "requested track is still verifying; try again shortly",
+            ));
+        }
+        if let Some(Err(error)) = result.as_ref() {
+            // FormatError has a non-Clone API. Preserve diagnostic fidelity.
+            return Err(FormatError {
+                kind: error.kind,
+                entry: error.entry.clone(),
+                message: error.message.clone(),
+            });
+        }
+        Ok(())
+    }
 }
 
 impl BurnedDisc {
@@ -42,7 +78,111 @@ impl BurnedDisc {
             file: Arc::new(file),
             validated: archive.validated,
             payloads: archive.payloads,
+            deferred_validation: None,
         })
+    }
+
+    /// Playback-specific fast mount. Only track 0 and the metadata/artwork
+    /// have been cryptographically verified when this returns. The same pinned
+    /// inode is fully verified in the background. Access to later tracks waits
+    /// for successful complete verification; failed validation denies access.
+    ///
+    /// Use `open()` for archival inspection, burning validation, CLI or any
+    /// caller requiring a fully verified disc at construction time.
+    pub fn open_for_playback(path: impl AsRef<Path>) -> FormatResult<Self> {
+        let path = path.as_ref().to_path_buf();
+        let file = File::open(&path)?;
+        let archive = format::validate_first_track_open_file(&file)?;
+        let verifier = file.try_clone()?;
+        let deferred = Arc::new(DeferredValidation {
+            result: Mutex::new(None),
+            cancelled: AtomicBool::new(false),
+        });
+        let completion = Arc::clone(&deferred);
+        thread::Builder::new()
+            .name("vdisc-complete-background-verification".into())
+            .spawn(move || {
+                let start = std::time::Instant::now();
+                let result = std::panic::catch_unwind(|| {
+                    format::validate_open_file_with_cancel(&verifier, &completion.cancelled)
+                })
+                .unwrap_or_else(|_| {
+                    Err(FormatError::new(
+                        FormatErrorKind::ResourceLimit,
+                        "complete verification worker panicked",
+                    ))
+                })
+                .map(|_| ());
+                // A removed disc has no consumer for this result. The validator
+                // exits at bounded I/O checkpoints and must never publish it.
+                if completion.cancelled.load(Ordering::Acquire) {
+                    return;
+                }
+                if std::env::var_os("VDISC_TIMING").is_some() {
+                    eprintln!(
+                        "vdisc: background full verification took {} ms ({})",
+                        start.elapsed().as_millis(),
+                        if result.is_ok() { "OK" } else { "FAILED" }
+                    );
+                }
+                let mut state = completion.result.lock().unwrap_or_else(|e| e.into_inner());
+                *state = Some(result);
+                // The GUI does not block on this worker. Pollers observe the
+                // completed result through a short mutex acquisition.
+            })
+            .map_err(|e| {
+                FormatError::new(
+                    FormatErrorKind::ResourceLimit,
+                    format!("cannot start complete verification: {e}"),
+                )
+            })?;
+        Ok(Self {
+            path,
+            file: Arc::new(file),
+            validated: archive.validated,
+            payloads: archive.payloads,
+            deferred_validation: Some(deferred),
+        })
+    }
+
+    /// Cooperative cancellation. Called when this disc leaves the Player.
+    /// Only the optional background playback worker is affected; strict
+    /// archive verification, disc files, and already opened audio are untouched.
+    pub fn cancel_background_verification(&self) {
+        if let Some(state) = &self.deferred_validation {
+            state.cancelled.store(true, Ordering::Release);
+        }
+    }
+
+    /// True only when the complete validation succeeded (including all tracks).
+    pub fn fully_verified(&self) -> bool {
+        self.deferred_validation.as_ref().is_none_or(|state| {
+            let guard = state.result.lock().unwrap_or_else(|e| e.into_inner());
+            matches!(guard.as_ref(), Some(Ok(())))
+        })
+    }
+
+    /// Nonblocking readiness gate for playback actions. Returns Ok(false)
+    /// while a later track is not yet verified; an integrity failure returns
+    /// Err instead of being confused with an in-progress background task.
+    /// The selected first track is verified as part of the fast mount.
+    pub fn playback_track_ready(&self, index: usize) -> FormatResult<bool> {
+        if index >= self.track_count() {
+            return Ok(false);
+        }
+        let Some(validation) = &self.deferred_validation else {
+            return Ok(true);
+        };
+        let state = validation.result.lock().unwrap_or_else(|e| e.into_inner());
+        match state.as_ref() {
+            Some(Err(error)) => Err(FormatError {
+                kind: error.kind,
+                entry: error.entry.clone(),
+                message: error.message.clone(),
+            }),
+            Some(Ok(())) => Ok(true),
+            None => Ok(index == 0),
+        }
     }
 
     /// Backward-compatible Objective 14 spelling for opening a burned disc.
@@ -96,7 +236,11 @@ impl BurnedDisc {
         let Some(track) = self.tracks().get(index) else {
             return Ok(None);
         };
-
+        if let Some(validation) = &self.deferred_validation {
+            // Never wait for a background worker on a caller's thread.
+            // A pending later track fails promptly and may be retried.
+            validation.inspect(index != 0)?;
+        }
         self.payload(&track.path).map(Some)
     }
 
@@ -168,6 +312,18 @@ impl BurnedDisc {
         }
 
         Ok(())
+    }
+}
+
+impl Drop for BurnedDisc {
+    fn drop(&mut self) {
+        // The worker holds one Arc while running. A count of at most two
+        // means no remaining BurnedDisc clone can observe its result.
+        if let Some(state) = &self.deferred_validation
+            && Arc::strong_count(state) <= 2
+        {
+            state.cancelled.store(true, Ordering::Release);
+        }
     }
 }
 
@@ -254,9 +410,81 @@ impl Seek for DiscPayload {
 
 #[cfg(test)]
 mod tests {
-    use super::DiscPayload;
-    use crate::format::PayloadLocation;
-    use std::{io::Read, os::unix::fs::FileExt, sync::Arc};
+    use super::{DeferredValidation, DiscPayload};
+    use crate::format::{FormatError, FormatErrorKind, PayloadLocation};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{
+        io::Read,
+        os::unix::fs::FileExt,
+        sync::{Arc, Mutex},
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    fn cancellation_aborts_background_validation_without_touching_media() {
+        let file = std::fs::File::open(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/vdisc/transport-two-track.vdisc"),
+        )
+        .unwrap();
+        let cancelled = AtomicBool::new(true);
+        let err = crate::format::validate_open_file_with_cancel(&file, &cancelled).unwrap_err();
+        assert_eq!(err.kind, FormatErrorKind::ResourceLimit);
+        assert!(err.to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn completed_late_failure_denies_even_prevalidated_track_zero() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/vdisc/transport-two-track.vdisc");
+        let mut disc = super::BurnedDisc::open(&path).unwrap();
+        disc.deferred_validation = Some(Arc::new(DeferredValidation {
+            result: Mutex::new(Some(Err(FormatError::new(
+                FormatErrorKind::IntegrityMismatch,
+                "corrupt later track",
+            )))),
+            cancelled: AtomicBool::new(false),
+        }));
+        assert_eq!(
+            disc.playback_track_ready(0).unwrap_err().kind,
+            FormatErrorKind::IntegrityMismatch
+        );
+        assert_eq!(
+            disc.track_payload(0).unwrap_err().kind,
+            FormatErrorKind::IntegrityMismatch
+        );
+        disc.cancel_background_verification();
+        assert!(
+            disc.deferred_validation
+                .as_ref()
+                .unwrap()
+                .cancelled
+                .load(Ordering::Acquire)
+        );
+    }
+
+    #[test]
+    fn unfinished_verification_never_blocks_the_calling_thread() {
+        let worker = DeferredValidation {
+            result: Mutex::new(None),
+            cancelled: AtomicBool::new(false),
+        };
+        let start = Instant::now();
+        worker.inspect(false).unwrap();
+        let pending = worker.inspect(true).unwrap_err();
+        assert_eq!(pending.kind, FormatErrorKind::ResourceLimit);
+        assert!(start.elapsed() < Duration::from_millis(100));
+        *worker.result.lock().unwrap() = Some(Ok(()));
+        worker.inspect(true).unwrap();
+        *worker.result.lock().unwrap() = Some(Err(FormatError::new(
+            FormatErrorKind::IntegrityMismatch,
+            "tampered later track",
+        )));
+        assert_eq!(
+            worker.inspect(true).unwrap_err().kind,
+            FormatErrorKind::IntegrityMismatch
+        );
+    }
 
     #[test]
     fn payload_supports_offsets_beyond_four_gib_without_large_allocation() {

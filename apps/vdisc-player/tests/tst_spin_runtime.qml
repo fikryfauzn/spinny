@@ -91,6 +91,9 @@ TestCase {
         compare(app.appliance.lidState, "Closed")
         compare(app.lidPivot.eulerRotation.x, hingeAngle)
         verify(!app.discDeck.tryBeginDrag(app.discDeck.discModel, Qt.vector3d(0, 0.014, 0)))
+        // Offscreen Qt QuickTests cannot rely on native window activation.
+        // Mirror the explicit test-only focus injection in TransportRuntime.
+        app.controls.windowActive = true
         const button = app.controls.buttonForName("BTN_PLAY_TEST")
         verify(app.controls.beginPress(button))
         verify(app.controls.finishPress(button))

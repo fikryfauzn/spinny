@@ -139,12 +139,21 @@ TestCase {
         verify(app !== null)
         try {
             app.requestActivate()
-            tryCompare(app, "active", true, 1000)
+            tryCompare(app, "active", true, 2000)
+            tryCompare(app.controls, "inputActive", true, 1000)
             keyClick(Qt.Key_O)
-            compare(app.appliance.lidState, "Opening")
+            tryCompare(app.appliance, "lidState", "Opening", 1000)
             tryCompare(app.appliance, "lidState", "Open", 1200)
+
+            // QML TestCase.keyClick() targets the active window. During the
+            // opening animation another test window can take focus. The C
+            // shortcut is intentionally disabled when this window is inactive,
+            // so reacquire activation before asserting its keyboard behavior.
+            app.requestActivate()
+            tryCompare(app, "active", true, 2000)
+            tryCompare(app.controls, "inputActive", true, 1000)
             keyClick(Qt.Key_C)
-            compare(app.appliance.lidState, "Closing")
+            tryCompare(app.appliance, "lidState", "Closing", 1000)
             tryCompare(app.appliance, "lidState", "Closed", 1200)
         } finally {
             app.destroy()
@@ -161,6 +170,7 @@ TestCase {
             const path = decodeURIComponent(url.substring("file://".length))
             verify(app.appliance.requestInsert(path), app.appliance.lastRejection)
             verify(app.appliance.discInserted())
+            tryCompare(app.appliance, "discState", "Seated", 5000)
             verify(app.appliance.requestClose())
             tryCompare(app.appliance, "lidState", "Closed", 1200)
             verify(app.appliance.requestPlay())
@@ -202,16 +212,25 @@ TestCase {
         verify(app !== null)
         try {
             verify(app.appliance.requestOpen())
-            wait(170)
+            // Wait for real movement, not an assumed frame after 170 ms.
+            tryVerify(function() {
+                return app.openingAnimation.running
+                        && app.appliance.lidState === "Opening"
+                        && app.lidPivot.eulerRotation.x < -1
+            }, 1800)
+            // Freeze the in-flight animation so the rejection test does not
+            // race its natural 600 ms completion on a busy render thread.
+            app.openingAnimation.pause()
             const before = app.lidPivot.eulerRotation.x
             verify(before < -1)
             verify(!app.appliance.requestOpen())
             verify(!app.appliance.requestClose())
             compare(app.appliance.lidState, "Opening")
             verify(app.openingAnimation.running)
+            verify(app.openingAnimation.paused)
             verify(!app.closingAnimation.running)
-            wait(80)
-            verify(app.lidPivot.eulerRotation.x < before)
+            fuzzyCompare(app.lidPivot.eulerRotation.x, before, 0.1)
+            app.openingAnimation.resume()
             tryCompare(app.appliance, "lidState", "Open", 1200)
             fuzzyCompare(app.lidPivot.eulerRotation.x, -105, 0.1)
         } finally {

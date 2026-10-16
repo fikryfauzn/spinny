@@ -55,8 +55,10 @@ TestCase {
         const app = createTemporaryObject(appComponent, null)
         const a = app.appliance
         verify(a.requestOpen()); tryCompare(a, "lidState", "Open", 1000)
-        verify(!a.requestInsert("/missing-lcd-disc.vdisc"))
-        verify(a.machineError.length > 0)
+        verify(a.requestInsert("/missing-lcd-disc.vdisc"))
+        tryVerify(function() {
+            return a.discState === "Absent" && a.machineError.length > 0
+        }, 5000)
         const error = a.machineError; const rejection = a.lastRejection
         a.refreshLcdFeedback()
         compare(a.machineError, error); compare(a.lastRejection, rejection)

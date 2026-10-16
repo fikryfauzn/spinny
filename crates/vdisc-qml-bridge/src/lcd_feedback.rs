@@ -77,15 +77,34 @@ mod tests {
         let mut r = ApplianceRuntime::with_backend(backend);
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/vdisc/transport-two-track.vdisc");
+        // Insertion is asynchronous: the animation acknowledgement alone
+        // cannot seat a disc. Wait until the fully verified handle is accepted
+        // before closing the lid and starting the fake audio backend.
         for command in [
             Command::Open,
             Command::LidOpened,
             Command::Insert(path),
             Command::DiscInserted,
-            Command::Close,
-            Command::LidClosed,
-            Command::Play,
         ] {
+            r.execute_at(command, now).unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            if let Some(result) = r.poll_insertion() {
+                result.expect("LCD test fixture verification must succeed");
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "LCD test fixture verification timed out"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            r.controller().disc_state(),
+            vdisc_appliance::DiscState::Seated
+        );
+        for command in [Command::Close, Command::LidClosed, Command::Play] {
             r.execute_at(command, now).unwrap();
         }
         r

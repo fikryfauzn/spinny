@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use vdisc_qml_bridge::{ApplianceRuntime, Command};
 #[path = "../../vdisc-appliance/tests/support/audio_backend.rs"]
@@ -12,6 +15,18 @@ fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/vdisc")
         .join(name)
+}
+
+/// Wait for the asynchronous validator; do not manufacture a verification result.
+fn await_validation(runtime: &mut ApplianceRuntime<AudioBackend>) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(result) = runtime.poll_insertion() {
+            return result;
+        }
+        assert!(Instant::now() < deadline, "disc validation timed out");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[test]
@@ -70,12 +85,19 @@ fn real_disc_facts_enter_lcd_only_after_core_validation() {
     runtime
         .execute(Command::Insert(fixture("valid-v1.vdisc")))
         .unwrap();
+    // Insertion only starts the worker; metadata is not yet published.
     let snapshot = runtime.snapshot();
     assert_eq!(snapshot.disc_state, "Inserting");
-    assert_eq!(snapshot.lcd_track_number, 1);
-    assert_eq!(snapshot.lcd_total_tracks, 1);
+    assert_eq!(snapshot.lcd_track_number, -1);
+    assert_eq!(snapshot.lcd_total_tracks, -1);
+    // Physical seating acknowledgement may arrive before verification finishes.
     runtime.execute(Command::DiscInserted).unwrap();
-    assert_eq!(runtime.snapshot().disc_state, "Seated");
+    assert_eq!(runtime.snapshot().disc_state, "Inserting");
+    await_validation(&mut runtime).unwrap();
+    let verified = runtime.snapshot();
+    assert_eq!(verified.disc_state, "Seated");
+    assert_eq!(verified.lcd_track_number, 1);
+    assert_eq!(verified.lcd_total_tracks, 1);
 }
 
 #[test]
@@ -83,13 +105,15 @@ fn rejected_disc_projects_machine_error_not_raw_backend_diagnostic() {
     let mut runtime = new();
     runtime.execute(Command::Open).unwrap();
     runtime.execute(Command::LidOpened).unwrap();
-    assert!(
-        runtime
-            .execute(Command::Insert(fixture("malformed-manifest.vdisc")))
-            .is_err()
-    );
+    // Starting verification succeeds; rejection is delivered asynchronously.
+    runtime
+        .execute(Command::Insert(fixture("malformed-manifest.vdisc")))
+        .unwrap();
+    assert_eq!(runtime.snapshot().disc_state, "Inserting");
+    assert!(await_validation(&mut runtime).is_err());
     let snapshot = runtime.snapshot();
     assert_eq!(snapshot.disc_state, "Absent");
     assert_ne!(snapshot.machine_error, "");
     assert_eq!(snapshot.lcd_message, snapshot.machine_error);
+    assert_eq!(snapshot.lcd_total_tracks, -1);
 }

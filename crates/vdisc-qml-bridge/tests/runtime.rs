@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use vdisc_appliance::{DiscState, LidState, PlayMode, TransportState};
 use vdisc_qml_bridge::{ApplianceRuntime, Command};
@@ -13,12 +16,24 @@ fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/vdisc/valid-v1.vdisc")
 }
 
+fn await_validation(runtime: &mut ApplianceRuntime<AudioBackend>) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(result) = runtime.poll_insertion() {
+            return result;
+        }
+        assert!(Instant::now() < deadline, "disc validation timed out");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn seated_runtime() -> ApplianceRuntime<AudioBackend> {
     let mut runtime = new();
     runtime.execute(Command::Open).unwrap();
     runtime.execute(Command::LidOpened).unwrap();
     runtime.execute(Command::Insert(fixture())).unwrap();
     runtime.execute(Command::DiscInserted).unwrap();
+    await_validation(&mut runtime).unwrap();
     runtime.execute(Command::Close).unwrap();
     runtime.execute(Command::LidClosed).unwrap();
     runtime
@@ -76,6 +91,8 @@ fn insertion_and_removal_wait_for_presentation_callbacks() {
     runtime.execute(Command::Insert(fixture())).unwrap();
     assert_eq!(runtime.controller().disc_state(), DiscState::Inserting);
     runtime.execute(Command::DiscInserted).unwrap();
+    assert_eq!(runtime.controller().disc_state(), DiscState::Inserting);
+    await_validation(&mut runtime).unwrap();
     assert_eq!(runtime.controller().disc_state(), DiscState::Seated);
     assert_eq!(runtime.backend().track_count(), 1);
     runtime.execute(Command::Remove).unwrap();
@@ -92,11 +109,12 @@ fn missing_disc_path_reports_error_without_seating_disc() {
     runtime.execute(Command::LidOpened).unwrap();
     assert!(runtime.execute(Command::Insert(PathBuf::new())).is_err());
     assert_eq!(runtime.controller().disc_state(), DiscState::Absent);
-    assert!(
-        runtime
-            .execute(Command::Insert(PathBuf::from("/missing.vdisc")))
-            .is_err()
-    );
+    // A nonexistent path is accepted as a request, then rejected by the worker.
+    runtime
+        .execute(Command::Insert(PathBuf::from("/missing.vdisc")))
+        .unwrap();
+    assert_eq!(runtime.controller().disc_state(), DiscState::Inserting);
+    assert!(await_validation(&mut runtime).is_err());
     assert_eq!(runtime.controller().disc_state(), DiscState::Absent);
     assert!(runtime.controller().error_state().is_some());
 }
@@ -174,10 +192,11 @@ fn poll_projects_live_position_failure_and_volume_does_not_clear_error() {
         Command::LidOpened,
         Command::Insert(fixture()),
         Command::DiscInserted,
-        Command::Close,
-        Command::LidClosed,
-        Command::Play,
     ] {
+        runtime.execute(command).unwrap();
+    }
+    await_validation(&mut runtime).unwrap();
+    for command in [Command::Close, Command::LidClosed, Command::Play] {
         runtime.execute(command).unwrap();
     }
     backend.current().lock().unwrap().position = 7;
@@ -206,10 +225,11 @@ fn every_command_reconciles_failure_before_policy_validation() {
         Command::LidOpened,
         Command::Insert(fixture()),
         Command::DiscInserted,
-        Command::Close,
-        Command::LidClosed,
-        Command::Play,
     ] {
+        runtime.execute(command).unwrap();
+    }
+    await_validation(&mut runtime).unwrap();
+    for command in [Command::Close, Command::LidClosed, Command::Play] {
         runtime.execute(command).unwrap();
     }
     backend.queue(vdisc_core::PlaybackBackendEvent::DecodeError(

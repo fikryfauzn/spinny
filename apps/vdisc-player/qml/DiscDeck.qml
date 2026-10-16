@@ -13,6 +13,7 @@ Item {
     readonly property alias insertionAnimation: insertMotion
     readonly property alias removalAnimation: removeMotion
     readonly property alias filePickerVisible: discFileDialog.visible
+    readonly property alias insertionPollTimer: validationTimer
     property string selectedPath: ""
     property bool dragging: false
     signal filePickerOpened()
@@ -134,6 +135,16 @@ Item {
         return false
     }
 
+    // The validation worker only delivers results through this GUI-thread poll.
+    // It does not re-open or re-hash the disc after completing.
+    Timer {
+        id: validationTimer
+        interval: 32
+        repeat: true
+        running: deck.appliance.insertionPending
+        onTriggered: deck.appliance.pollInsertion()
+    }
+
     Vector3dAnimation {
         id: insertMotion
         target: deck.discRoot
@@ -164,6 +175,14 @@ Item {
             if (deck.appliance.discState !== "Absent"
                     && deck.appliance.discState !== "Seated")
                 deck.cancelDrag()
+            if (deck.appliance.discState === "Absent") {
+                // Failed validation can arrive before or after animation end.
+                // Never leave an invalid disc visually sitting on the spindle.
+                if (insertMotion.running)
+                    insertMotion.stop()
+                if (!deck.dragging)
+                    deck.snapToProjectedPose()
+            }
         }
         function onLidStateChanged() {
             if (deck.appliance.lidState !== "Open")
@@ -240,7 +259,10 @@ Item {
 
         MouseArea {
             anchors.fill: parent
-            onClicked: discFileDialog.open()
+            onClicked: {
+            if (!deck.appliance.insertionPending && deck.appliance.discState === "Absent")
+                discFileDialog.open()
+        }
         }
     }
 
@@ -250,7 +272,7 @@ Item {
         width: Math.min(parent.width - 32, 500)
         color: "#e1e9ee"
         wrapMode: Text.Wrap
-        text: deck.statusText
+        text: deck.appliance.insertionPending ? "VERIFYING DISC..." : deck.statusText
     }
 
     FileDialog {

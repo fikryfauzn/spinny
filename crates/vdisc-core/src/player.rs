@@ -188,6 +188,17 @@ impl Player {
         }
 
         let disc = BurnedDisc::open(path)?;
+        self.insert_validated(disc)
+    }
+
+    /// Insert a fully verified, pinned VDISC without reopening or rehashing it.
+    /// The GUI may supply a fast playback mount, which gates later track
+    /// payload access until full background verification succeeds.
+    /// Used by the desktop app after asynchronous verification.
+    pub fn insert_validated(&mut self, disc: BurnedDisc) -> PlayerResult<()> {
+        if !matches!(&self.inner, PlayerInner::Empty) {
+            return Err(self.invalid(PlayerAction::Insert));
+        }
         self.inner = PlayerInner::Loaded(Box::new(LoadedPlayer {
             disc,
             transport: TransportState::Stopped,

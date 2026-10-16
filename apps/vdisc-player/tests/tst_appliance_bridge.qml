@@ -159,9 +159,14 @@ TestCase {
             const path = decodeURIComponent(url.substring("file://".length))
             verify(bridge.requestInsert(path), bridge.lastRejection)
             compare(bridge.discState, "Inserting")
-            compare(bridge.lcdTrackNumber, 1)
+            verify(bridge.insertionPending)
             verify(bridge.discInserted())
-            compare(bridge.discState, "Seated")
+            tryVerify(function() {
+                bridge.pollInsertion()
+                return bridge.discState === "Seated"
+            }, 5000)
+            compare(bridge.insertionPending, false)
+            compare(bridge.lcdTrackNumber, 1)
             verify(bridge.requestRemove())
             compare(bridge.discState, "Removing")
             verify(bridge.discRemoved())

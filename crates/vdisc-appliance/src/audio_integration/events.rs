@@ -20,6 +20,21 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
                 }
             }
         }
+        // The first track was verified before seating, but another track
+        // may fail the complete background pass. Detect that even when idle,
+        // report it exactly once, and retire an active audio session before
+        // any further payload can be opened. A later inserted disc resets the
+        // latch, so no previous worker can poison the new session.
+        if !self.verification_failure_reported {
+            let failed = self
+                .player
+                .disc()
+                .and_then(|disc| disc.playback_track_ready(0).err());
+            if let Some(error) = failed {
+                self.verification_failure_reported = true;
+                return Err(self.fail_backend(controller, PlaybackError::Disc(error)));
+            }
+        }
         if self.pending_eof
             && matches!(
                 controller.transport_state(),
@@ -56,6 +71,15 @@ impl<B: PlaybackBackend> AudioPlayerBridge<B> {
         let intent = controller
             .track_completion_intent(current + 1 == count)
             .map_err(CoreIntegrationError::from)?;
+        // EOF is already latched in pending_eof. Leave the transport and
+        // current session untouched until the next track can be opened.
+        // The event loop keeps polling without blocking on verification.
+        if matches!(intent, TrackCompletionIntent::Advance)
+            && current + 1 < count
+            && !self.playback_track_ready(controller, current + 1)?
+        {
+            return Ok(());
+        }
         let result: Result<(), PlaybackError> = (|| {
             match intent {
                 TrackCompletionIntent::Advance | TrackCompletionIntent::StopAtDiscEnd => {

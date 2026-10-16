@@ -85,7 +85,12 @@ TestCase {
         compare(app.appliance.lcdTrackNumber, -1)
         compare(app.appliance.lidState, "Closed")
         verify(app.appliance.lastRejection.length > 0)
-        wait(120)
+        // Qt Quick animation frames can arrive late under software/offscreen load.
+        // Wait for the physical button to settle rather than assuming 120 ms.
+        tryVerify(function() {
+            return Math.abs(button.y - restY) <= 0.000001
+                && Math.abs(button.z - restZ) <= 0.000001
+        }, 750)
         fuzzyCompare(button.y, restY, 0.000001)
         fuzzyCompare(button.z, restZ, 0.000001)
         verify(app.appliance.setHold(false))
