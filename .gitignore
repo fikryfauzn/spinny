@@ -1,3 +1,15 @@
 /target
 /crates/vdisc-qml-bridge/.qmlls.ini
 /docs/superpowers/
+
+# Authoring assets and generated build output stay outside version control.
+/build/
+/assets/blender/
+/assets/runtime/
+/apps/vdisc-player/generated/
+*.blend
+*.blend[0-9]*
+*.glb
+*.gltf
+*.fbx
+*.mesh

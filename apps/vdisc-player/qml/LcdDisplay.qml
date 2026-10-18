@@ -63,7 +63,7 @@ Rectangle {
         }
     }
     Text {
-        x: 16; y: 0; width: 868; height: 72
+        x: 16; y: 0; width: parent.width - 32; height: 72
         text: display.primaryText
         color: "#253126"
         font.family: "monospace"
@@ -72,7 +72,7 @@ Rectangle {
         clip: true
     }
     Text {
-        x: 16; y: 72; width: 868; height: 48
+        x: 16; y: 72; width: parent.width - 32; height: 48
         text: [display.statusText, display.modeText, display.holdText, display.avlsText]
             .filter(function(value) { return value !== "" }).join("   ")
         color: "#253126"
